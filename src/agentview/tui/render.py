@@ -10,6 +10,7 @@ from agentview.models import (
     MCPServer,
     MemoryFile,
     Plugin,
+    ScanReport,
     ScanResult,
     ScanWarning,
     SettingsBundle,
@@ -48,6 +49,28 @@ def category_count(result: ScanResult, key: str) -> int:
     return counts.get(key, 0)
 
 
+def sidebar_label(report: ScanReport, name: str, key: str) -> str:
+    user_n = category_count(report.user, key) if report.user else 0
+    project_n = category_count(report.project, key) if report.project else 0
+    if report.user is not None and report.project is not None:
+        return f"{name}  U:{user_n} P:{project_n}"
+    return f"{name}  ({user_n + project_n})"
+
+
+def items_for_report(report: ScanReport, key: str) -> list[tuple[str, object, str]]:
+    multi = report.user is not None and report.project is not None
+    items: list[tuple[str, object, str]] = []
+    if report.user is not None:
+        for label, payload in category_items(report.user, key):
+            display = f"[U] {label}" if multi else label
+            items.append((display, payload, "user"))
+    if report.project is not None:
+        for label, payload in category_items(report.project, key):
+            display = f"[P] {label}" if multi else label
+            items.append((display, payload, "project"))
+    return items
+
+
 def category_items(  # noqa: PLR0911
     result: ScanResult, key: str
 ) -> list[tuple[str, object]]:
@@ -74,7 +97,15 @@ def category_items(  # noqa: PLR0911
             return []
 
 
-def render_detail(key: str, payload: object) -> RenderableType:  # noqa: PLR0911
+def render_detail(key: str, payload: object, scope: str = "") -> RenderableType:
+    body = _render_detail_body(key, payload)
+    if scope and isinstance(body, Text):
+        header = Text(f"[{scope}]\n", style="bold")
+        return header + body
+    return body
+
+
+def _render_detail_body(key: str, payload: object) -> RenderableType:  # noqa: PLR0911
     match key:
         case "settings":
             return _settings_detail(payload)
