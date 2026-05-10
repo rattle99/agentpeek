@@ -5,7 +5,7 @@ from textual.app import App
 from textual.binding import Binding, BindingType
 
 from agentview.scanner import scan
-from agentview.tui.screens.overview import OverviewScreen
+from agentview.tui.screens.main import MainScreen
 
 
 class AgentViewApp(App[None]):
@@ -23,4 +23,4 @@ class AgentViewApp(App[None]):
 
     def on_mount(self) -> None:
         result = scan(self._scan_root, self._source_name)
-        self.push_screen(OverviewScreen(result))
+        self.push_screen(MainScreen(result))
