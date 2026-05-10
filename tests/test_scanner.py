@@ -34,6 +34,7 @@ def test_scan_local_source(sample_claude_root: Path) -> None:
     assert warning_categories.count("hooks") == 1
     assert warning_categories.count("commands") == 1
     assert warning_categories.count("conflicting_binding") == 1
+    assert warning_categories.count("orphan_hook") == 1
 
 
 def test_scan_unknown_source() -> None:
