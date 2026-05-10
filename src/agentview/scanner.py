@@ -1,5 +1,7 @@
+import dataclasses
 from pathlib import Path
 
+from agentview.health import run_health_checks
 from agentview.models import ScanResult
 from agentview.sources.base import Source
 from agentview.sources.local import LocalSource
@@ -8,6 +10,14 @@ ALL_SOURCES: tuple[Source, ...] = (LocalSource(),)
 
 
 def scan(root: Path | None = None, source_name: str | None = None) -> ScanResult:
+    result = _scan_raw(root, source_name)
+    issues = run_health_checks(result)
+    if issues:
+        return dataclasses.replace(result, warnings=result.warnings + tuple(issues))
+    return result
+
+
+def _scan_raw(root: Path | None, source_name: str | None) -> ScanResult:
     if source_name is not None:
         for s in ALL_SOURCES:
             if s.name == source_name:

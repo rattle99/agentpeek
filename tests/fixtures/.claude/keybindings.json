@@ -15,6 +15,12 @@
         "esc": "chat:clear",
         "tab": "chat:cycle"
       }
+    },
+    {
+      "context": "Global",
+      "bindings": {
+        "ctrl+l": "app:reload"
+      }
     }
   ]
 }
