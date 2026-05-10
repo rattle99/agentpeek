@@ -7,6 +7,7 @@ def run_health_checks(result: ScanResult) -> list[ScanWarning]:
     issues: list[ScanWarning] = []
     issues.extend(_check_conflicting_keybindings(result))
     issues.extend(_check_orphan_hooks(result))
+    issues.extend(_check_plugin_state(result))
     return issues
 
 
@@ -51,6 +52,23 @@ def _check_orphan_hooks(result: ScanResult) -> list[ScanWarning]:
                     category="orphan_hook",
                     reason=(
                         f"script {f.name} is not referenced from any settings hook"
+                    ),
+                )
+            )
+    return issues
+
+
+def _check_plugin_state(result: ScanResult) -> list[ScanWarning]:
+    issues: list[ScanWarning] = []
+    for plugin in result.plugins:
+        if plugin.enabled and not plugin.installations:
+            issues.append(
+                ScanWarning(
+                    path=None,
+                    category="plugin_state",
+                    reason=(
+                        f"plugin {plugin.qualified_id} is enabled but has "
+                        "no installations on disk"
                     ),
                 )
             )

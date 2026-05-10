@@ -22,7 +22,7 @@ def test_scan_local_source(sample_claude_root: Path) -> None:
     assert by_name["plain"].body.startswith("# A plain command")
     assert by_name["broken-fm"].body  # raw fallback for broken frontmatter
 
-    assert len(result.plugins) == 2
+    assert len(result.plugins) == 3
     assert len(result.memory) == 1
     assert "sample memory file" in result.memory[0].body.lower()
     assert len(result.mcp) == 1
@@ -35,6 +35,7 @@ def test_scan_local_source(sample_claude_root: Path) -> None:
     assert warning_categories.count("commands") == 1
     assert warning_categories.count("conflicting_binding") == 1
     assert warning_categories.count("orphan_hook") == 1
+    assert warning_categories.count("plugin_state") == 1
 
 
 def test_scan_unknown_source() -> None:

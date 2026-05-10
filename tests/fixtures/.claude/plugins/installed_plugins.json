@@ -29,6 +29,7 @@
         "gitCommitSha": "ghi789",
         "projectPath": "/path/to/project"
       }
-    ]
+    ],
+    "broken@market-x": []
   }
 }

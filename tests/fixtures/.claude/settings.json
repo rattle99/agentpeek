@@ -8,7 +8,8 @@
   },
   "enabledPlugins": {
     "alpha@market-one": true,
-    "beta@market-two": true
+    "beta@market-two": true,
+    "broken@market-x": true
   },
   "hooks": {
     "PreToolUse": [
