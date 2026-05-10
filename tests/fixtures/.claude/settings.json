@@ -1,0 +1,40 @@
+{
+  "model": "opus",
+  "theme": "dark",
+  "effortLevel": "high",
+  "editorMode": "vim",
+  "env": {
+    "FOO": "bar"
+  },
+  "enabledPlugins": {
+    "alpha@market-one": true,
+    "beta@market-two": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/present-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/missing-hook.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo started"
+          }
+        ]
+      }
+    ]
+  }
+}

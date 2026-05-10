@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "redacted"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "alpha@market-one": true
+  }
+}

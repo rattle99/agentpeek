@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(brew upgrade:*)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}
