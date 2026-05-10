@@ -1,10 +1,12 @@
 from pathlib import Path
 
-from agentview.scanner import scan
+from agentview.scanner import find_project_root, scan
 
 
 def test_scan_local_source(sample_claude_root: Path) -> None:
-    result = scan(sample_claude_root)
+    report = scan(sample_claude_root)
+    result = report.project
+    assert result is not None
 
     assert result.source == "local"
     assert result.settings is not None
@@ -38,14 +40,31 @@ def test_scan_local_source(sample_claude_root: Path) -> None:
     assert warning_categories.count("plugin_state") == 1
 
 
-def test_scan_unknown_source() -> None:
-    result = scan(source_name="codex")
+def test_scan_unknown_source(sample_claude_root: Path) -> None:
+    report = scan(root=sample_claude_root, source_name="codex")
+    result = report.project
+    assert result is not None
     assert result.source == ""
-    assert len(result.warnings) == 1
-    assert result.warnings[0].category == "source"
+    assert any(w.category == "source" for w in result.warnings)
 
 
 def test_scan_undetected_root(tmp_path: Path) -> None:
-    result = scan(root=tmp_path)
+    report = scan(root=tmp_path)
+    result = report.project
+    assert result is not None
     assert result.source == ""
     assert any(w.category == "source" for w in result.warnings)
+
+
+def test_find_project_root_walks_up(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    deep = project / "src" / "lib"
+    deep.mkdir(parents=True)
+    (project / ".claude").mkdir()
+    assert find_project_root(deep) == project / ".claude"
+
+
+def test_find_project_root_returns_none_when_absent(tmp_path: Path) -> None:
+    deep = tmp_path / "no" / "claude" / "anywhere"
+    deep.mkdir(parents=True)
+    assert find_project_root(deep) is None

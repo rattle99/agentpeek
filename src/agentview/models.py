@@ -131,3 +131,15 @@ class ScanResult:
             mcp=(),
             warnings=ws,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ScanReport:
+    user: ScanResult | None
+    project: ScanResult | None
+    project_root: Path | None
+    cross_scope_warnings: tuple[ScanWarning, ...] = ()
+
+    @property
+    def primary(self) -> ScanResult | None:
+        return self.project or self.user

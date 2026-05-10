@@ -4,6 +4,7 @@ from typing import ClassVar
 from textual.app import App
 from textual.binding import Binding, BindingType
 
+from agentview.models import ScanResult
 from agentview.scanner import scan
 from agentview.tui.screens.main import MainScreen
 
@@ -22,5 +23,10 @@ class AgentViewApp(App[None]):
         self._source_name = source_name
 
     def on_mount(self) -> None:
-        result = scan(self._scan_root, self._source_name)
+        report = scan(self._scan_root, self._source_name)
+        # commit A: render whichever scope is present; project preferred. Multi-
+        # scope rendering lands in the next commit on this branch.
+        result = report.primary
+        if result is None:
+            result = ScanResult.empty(reason="no .claude/ found at any scope")
         self.push_screen(MainScreen(result))
