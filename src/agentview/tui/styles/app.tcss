@@ -1,0 +1,34 @@
+Screen {
+    background: $background;
+}
+
+#tile-grid {
+    grid-size: 4 2;
+    grid-gutter: 1 2;
+    padding: 1 2;
+}
+
+CategoryTile {
+    border: round $primary;
+    background: $surface;
+    color: $text;
+    padding: 0 1;
+    height: 6;
+    content-align: left top;
+}
+
+CategoryTile.tile-warn {
+    border: round $warning;
+}
+
+CategoryTile.tile-ok {
+    border: round $primary;
+}
+
+Header {
+    dock: top;
+}
+
+Footer {
+    dock: bottom;
+}

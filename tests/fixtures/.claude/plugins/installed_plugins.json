@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "plugins": {
+    "alpha@market-one": [
+      {
+        "scope": "managed",
+        "installPath": "/path/to/alpha",
+        "version": "1.0.0",
+        "installedAt": "2026-04-24T00:00:00Z",
+        "lastUpdated": "2026-04-24T00:00:00Z",
+        "gitCommitSha": "abc123"
+      }
+    ],
+    "beta@market-two": [
+      {
+        "scope": "managed",
+        "installPath": "/path/to/beta-1",
+        "version": "1.0.0",
+        "installedAt": "2026-04-24T00:00:00Z",
+        "lastUpdated": "2026-04-24T00:00:00Z",
+        "gitCommitSha": "def456"
+      },
+      {
+        "scope": "project",
+        "installPath": "/path/to/beta-2",
+        "version": "1.1.0",
+        "installedAt": "2026-04-25T00:00:00Z",
+        "lastUpdated": "2026-04-25T00:00:00Z",
+        "gitCommitSha": "ghi789",
+        "projectPath": "/path/to/project"
+      }
+    ]
+  }
+}

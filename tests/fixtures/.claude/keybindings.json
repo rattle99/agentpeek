@@ -1,0 +1,20 @@
+{
+  "$schema": "https://example.invalid/schema.json",
+  "$docs": "https://example.invalid/docs",
+  "bindings": [
+    {
+      "context": "Global",
+      "bindings": {
+        "ctrl+l": "app:redraw",
+        "ctrl+c": "app:exit"
+      }
+    },
+    {
+      "context": "Chat",
+      "bindings": {
+        "esc": "chat:clear",
+        "tab": "chat:cycle"
+      }
+    }
+  ]
+}

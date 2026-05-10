@@ -1,0 +1,77 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentview"
+version = "0.1.0"
+description = "TUI inspector for agent CLI configuration directories like ~/.claude/."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+authors = [{ name = "rattle99", email = "24495512+rattle99@users.noreply.github.com" }]
+keywords = ["claude", "claude-code", "agent-cli", "tui", "textual", "config", "inspector"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: Terminals",
+    "Typing :: Typed",
+]
+dependencies = [
+    "textual>=0.80.0",
+    "python-frontmatter>=1.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rattle99/agentview"
+Repository = "https://github.com/rattle99/agentview"
+Issues = "https://github.com/rattle99/agentview/issues"
+
+[project.scripts]
+agentview = "agentview.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentview"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/agentview", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.ruff]
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "TCH", "PTH", "PL"]
+ignore = ["PLR2004"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR0913"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = ["error"]
