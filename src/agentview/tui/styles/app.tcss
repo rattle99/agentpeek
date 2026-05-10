@@ -2,27 +2,43 @@ Screen {
     background: $background;
 }
 
-#tile-grid {
-    grid-size: 4 2;
-    grid-gutter: 1 2;
-    padding: 1 2;
+#three-zone {
+    layout: horizontal;
+    height: 1fr;
 }
 
-CategoryTile {
-    border: round $primary;
-    background: $surface;
-    color: $text;
+#sidebar {
+    width: 28;
+    border-right: solid $primary;
     padding: 0 1;
-    height: 6;
-    content-align: left top;
 }
 
-CategoryTile.tile-warn {
-    border: round $warning;
+#main-panel {
+    width: 1fr;
+    border-right: solid $primary;
+    padding: 0 1;
 }
 
-CategoryTile.tile-ok {
-    border: round $primary;
+#detail-pane {
+    width: 2fr;
+    padding: 0 1;
+}
+
+.zone-title {
+    text-style: bold;
+    color: $primary;
+    padding-bottom: 1;
+}
+
+#category-list,
+#item-list {
+    height: 1fr;
+    background: $surface;
+}
+
+#detail-content {
+    height: auto;
+    color: $text;
 }
 
 Header {
