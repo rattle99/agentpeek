@@ -81,7 +81,9 @@ class MainScreen(Screen[None]):
         items = items_for_report(self._report, category)
         item_list.clear()
         for label, _payload, _scope in items:
-            item_list.append(ListItem(Label(label)))
+            # markup=False: items contain brackets ([U], [P], [hooks], ...) that
+            # Rich would otherwise parse as markup tags and silently strip.
+            item_list.append(ListItem(Label(label, markup=False)))
 
         title = self.query_one("#main-title", Label)
         name = next((n for k, n in CATEGORIES if k == category), category)
