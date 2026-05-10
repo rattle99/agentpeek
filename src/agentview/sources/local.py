@@ -176,9 +176,13 @@ class LocalSource:
                 "\\", "/"
             )
             if file is None:
-                # Frontmatter parse failed — still surface the command with empty
-                # metadata so the dashboard counts it. The warning is already
-                # attached above; v0.2 drill-down can show the raw body.
+                # Frontmatter parse failed — fall back to raw text so the
+                # detail pane can still show what's in the file. The warning
+                # is already attached above.
+                try:
+                    raw_body = md_path.read_text(encoding="utf-8")
+                except OSError:
+                    raw_body = ""
                 results.append(
                     SlashCommand(
                         path=md_path,
@@ -186,7 +190,7 @@ class LocalSource:
                         description=None,
                         argument_hint=None,
                         allowed_tools=(),
-                        body_chars=0,
+                        body=raw_body,
                     )
                 )
                 continue
@@ -203,7 +207,7 @@ class LocalSource:
                     description=_as_str(file.metadata.get("description")),
                     argument_hint=_as_str(file.metadata.get("argument-hint")),
                     allowed_tools=allowed_tuple,
-                    body_chars=len(file.body),
+                    body=file.body,
                 )
             )
         return tuple(results)
@@ -255,13 +259,17 @@ class LocalSource:
             file, warning = load_frontmatter(candidate, category="memory")
             if warning is not None:
                 warnings.append(warning)
-            try:
-                size = candidate.stat().st_size
-            except OSError:
-                size = 0
-            has_fm = file is not None and bool(file.metadata)
+            if file is None:
+                try:
+                    body = candidate.read_text(encoding="utf-8")
+                except OSError:
+                    body = ""
+                has_fm = False
+            else:
+                body = file.body
+                has_fm = bool(file.metadata)
             results.append(
-                MemoryFile(path=candidate, size_bytes=size, has_frontmatter=has_fm)
+                MemoryFile(path=candidate, body=body, has_frontmatter=has_fm)
             )
         return tuple(results)
 

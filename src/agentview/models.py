@@ -45,7 +45,7 @@ class SlashCommand:
     description: str | None
     argument_hint: str | None
     allowed_tools: tuple[str, ...]
-    body_chars: int
+    body: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +71,7 @@ class Plugin:
 @dataclass(frozen=True, slots=True)
 class MemoryFile:
     path: Path
-    size_bytes: int
+    body: str
     has_frontmatter: bool
 
 

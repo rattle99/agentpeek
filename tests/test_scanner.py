@@ -17,8 +17,14 @@ def test_scan_local_source(sample_claude_root: Path) -> None:
     command_names = {c.name for c in result.commands}
     assert command_names == {"good", "plain", "broken-fm"}
 
+    by_name = {c.name: c for c in result.commands}
+    assert "Sample command body" in by_name["good"].body
+    assert by_name["plain"].body.startswith("# A plain command")
+    assert by_name["broken-fm"].body  # raw fallback for broken frontmatter
+
     assert len(result.plugins) == 2
     assert len(result.memory) == 1
+    assert "sample memory file" in result.memory[0].body.lower()
     assert len(result.mcp) == 1
     assert len(result.hooks) >= 2
 
