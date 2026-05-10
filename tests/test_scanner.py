@@ -1,6 +1,13 @@
+import dataclasses
 from pathlib import Path
 
-from agentview.scanner import find_project_root, scan
+from agentview.models import (
+    Plugin,
+    PluginInstallation,
+    ScanReport,
+    ScanResult,
+)
+from agentview.scanner import find_project_root, redistribute_plugins, scan
 
 
 def test_scan_local_source(sample_claude_root: Path) -> None:
@@ -68,3 +75,153 @@ def test_find_project_root_returns_none_when_absent(tmp_path: Path) -> None:
     deep = tmp_path / "no" / "claude" / "anywhere"
     deep.mkdir(parents=True)
     assert find_project_root(deep) is None
+
+
+def _make_installation(
+    *, scope: str, project_path: Path | None = None
+) -> PluginInstallation:
+    return PluginInstallation(
+        scope=scope,
+        install_path=Path("/somewhere"),
+        version="1.0",
+        installed_at="t",
+        last_updated="t",
+        git_commit_sha=None,
+        project_path=project_path,
+    )
+
+
+def _make_plugin(
+    qualified_id: str,
+    installations: tuple[PluginInstallation, ...],
+    *,
+    enabled: bool = False,
+) -> Plugin:
+    pid, _, marketplace = qualified_id.partition("@")
+    return Plugin(
+        id=pid,
+        marketplace=marketplace,
+        qualified_id=qualified_id,
+        enabled=enabled,
+        installations=installations,
+    )
+
+
+def _build_report(
+    project_root: Path,
+    user_plugins: tuple[Plugin, ...],
+    project_plugins: tuple[Plugin, ...] = (),
+) -> ScanReport:
+    user_root = Path.home() / ".claude"
+    user = dataclasses.replace(ScanResult.empty(root=user_root), plugins=user_plugins)
+    project = dataclasses.replace(
+        ScanResult.empty(root=project_root), plugins=project_plugins
+    )
+    return ScanReport(user=user, project=project, project_root=project_root)
+
+
+def test_redistribute_moves_project_scope_plugin(tmp_path: Path) -> None:
+    project_dir = tmp_path / "proj"
+    project_root = project_dir / ".claude"
+    project_root.mkdir(parents=True)
+    (project_root / "settings.json").write_text('{"enabledPlugins": {"alpha@m": true}}')
+
+    plugin = _make_plugin(
+        "alpha@m",
+        (_make_installation(scope="project", project_path=project_dir),),
+    )
+    report = _build_report(project_root, user_plugins=(plugin,))
+
+    redistributed = redistribute_plugins(report)
+    assert redistributed.user is not None
+    assert redistributed.project is not None
+    assert len(redistributed.user.plugins) == 0
+    assert len(redistributed.project.plugins) == 1
+    assert redistributed.project.plugins[0].qualified_id == "alpha@m"
+    # Recomputed against project's settings.json
+    assert redistributed.project.plugins[0].enabled is True
+
+
+def test_redistribute_keeps_managed_scope_in_user(tmp_path: Path) -> None:
+    project_dir = tmp_path / "proj"
+    project_root = project_dir / ".claude"
+    project_root.mkdir(parents=True)
+
+    plugin = _make_plugin(
+        "beta@m", (_make_installation(scope="managed"),), enabled=True
+    )
+    report = _build_report(project_root, user_plugins=(plugin,))
+
+    redistributed = redistribute_plugins(report)
+    assert redistributed.user is not None
+    assert redistributed.project is not None
+    assert len(redistributed.user.plugins) == 1
+    assert len(redistributed.project.plugins) == 0
+
+
+def test_redistribute_splits_mixed_installations(tmp_path: Path) -> None:
+    project_dir = tmp_path / "proj"
+    project_root = project_dir / ".claude"
+    project_root.mkdir(parents=True)
+
+    plugin = _make_plugin(
+        "gamma@m",
+        (
+            _make_installation(scope="managed"),
+            _make_installation(scope="project", project_path=project_dir),
+        ),
+    )
+    report = _build_report(project_root, user_plugins=(plugin,))
+
+    redistributed = redistribute_plugins(report)
+    assert redistributed.user is not None
+    assert redistributed.project is not None
+    assert len(redistributed.user.plugins) == 1
+    assert len(redistributed.user.plugins[0].installations) == 1
+    assert redistributed.user.plugins[0].installations[0].scope == "managed"
+    assert len(redistributed.project.plugins) == 1
+    assert len(redistributed.project.plugins[0].installations) == 1
+    assert redistributed.project.plugins[0].installations[0].scope == "project"
+
+
+def test_redistribute_matches_local_scope_with_project_path(tmp_path: Path) -> None:
+    # Real-world case: installations with scope='local' but a project_path
+    # pointing at the discovered project should still move to the project scope.
+    project_dir = tmp_path / "proj"
+    project_root = project_dir / ".claude"
+    project_root.mkdir(parents=True)
+
+    plugin = _make_plugin(
+        "delta@m",
+        (_make_installation(scope="local", project_path=project_dir),),
+    )
+    report = _build_report(project_root, user_plugins=(plugin,))
+
+    redistributed = redistribute_plugins(report)
+    assert redistributed.user is not None
+    assert redistributed.project is not None
+    assert len(redistributed.user.plugins) == 0
+    assert len(redistributed.project.plugins) == 1
+
+
+def test_redistribute_ignores_project_path_for_other_project(tmp_path: Path) -> None:
+    # An installation with a project_path pointing at some OTHER project must
+    # not move into the current project's scope.
+    project_dir = tmp_path / "proj"
+    project_root = project_dir / ".claude"
+    project_root.mkdir(parents=True)
+
+    other_project = tmp_path / "other"
+    other_project.mkdir()
+
+    plugin = _make_plugin(
+        "epsilon@m",
+        (_make_installation(scope="project", project_path=other_project),),
+    )
+    report = _build_report(project_root, user_plugins=(plugin,))
+
+    redistributed = redistribute_plugins(report)
+    assert redistributed.user is not None
+    assert redistributed.project is not None
+    assert len(redistributed.user.plugins) == 1
+    assert len(redistributed.project.plugins) == 0
