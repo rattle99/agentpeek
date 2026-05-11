@@ -26,7 +26,21 @@ class LocalSource:
         return Path.home() / self.DEFAULT_DIR_NAME
 
     def detect(self, root: Path) -> bool:
-        return (root / "settings.json").exists() or (root / "commands").is_dir()
+        # A directory looks like a Claude Code config root if it contains any
+        # of these known artifacts. settings.local.json alone is enough —
+        # Claude Code commonly auto-creates that in projects without ever
+        # writing a settings.json.
+        indicators = (
+            "settings.json",
+            "settings.local.json",
+            "remote-settings.json",
+            "commands",
+            "plugins",
+            "hooks",
+            "keybindings.json",
+            "CLAUDE.md",
+        )
+        return any((root / name).exists() for name in indicators)
 
     def scan(self, root: Path) -> ScanResult:
         warnings: list[ScanWarning] = []
