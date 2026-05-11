@@ -2,7 +2,7 @@ import dataclasses
 from pathlib import Path
 from typing import cast
 
-from agentview.health import run_health_checks
+from agentview.health import run_cross_scope_checks, run_health_checks
 from agentview.models import (
     Plugin,
     PluginInstallation,
@@ -59,7 +59,18 @@ def scan(root: Path | None = None, source_name: str | None = None) -> ScanReport
     report = ScanReport(
         user=user_result, project=project_result, project_root=project_root
     )
-    return redistribute_plugins(report)
+    report = redistribute_plugins(report)
+    return _attach_cross_scope_warnings(report)
+
+
+def _attach_cross_scope_warnings(report: ScanReport) -> ScanReport:
+    issues = run_cross_scope_checks(report)
+    if not issues or report.project is None:
+        return report
+    new_project = dataclasses.replace(
+        report.project, warnings=report.project.warnings + tuple(issues)
+    )
+    return dataclasses.replace(report, project=new_project)
 
 
 def redistribute_plugins(report: ScanReport) -> ScanReport:

@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from agentview.models import ScanResult, ScanWarning
+from agentview.models import ScanReport, ScanResult, ScanWarning
 
 
 def run_health_checks(result: ScanResult) -> list[ScanWarning]:
@@ -73,3 +73,62 @@ def _check_plugin_state(result: ScanResult) -> list[ScanWarning]:
                 )
             )
     return issues
+
+
+def run_cross_scope_checks(report: ScanReport) -> list[ScanWarning]:
+    """Cross-scope diagnostics: comparing user-level and project-level scans
+    for overlaps, overrides, and layered configuration."""
+    if report.user is None or report.project is None:
+        return []
+    issues: list[ScanWarning] = []
+    issues.extend(_check_scope_override_command(report))
+    issues.extend(_check_scope_override_plugin(report))
+    issues.extend(_check_scope_layered_memory(report))
+    return issues
+
+
+def _check_scope_override_command(report: ScanReport) -> list[ScanWarning]:
+    assert report.user is not None and report.project is not None
+    user_names = {c.name for c in report.user.commands}
+    project_names = {c.name for c in report.project.commands}
+    return [
+        ScanWarning(
+            path=None,
+            category="scope_override_command",
+            reason=(
+                f"slash command /{name} exists in both user and project scope; "
+                "project version takes precedence"
+            ),
+        )
+        for name in sorted(user_names & project_names)
+    ]
+
+
+def _check_scope_override_plugin(report: ScanReport) -> list[ScanWarning]:
+    assert report.user is not None and report.project is not None
+    user_ids = {p.qualified_id for p in report.user.plugins}
+    project_ids = {p.qualified_id for p in report.project.plugins}
+    return [
+        ScanWarning(
+            path=None,
+            category="scope_override_plugin",
+            reason=(f"plugin {qid} has installations in both user and project scope"),
+        )
+        for qid in sorted(user_ids & project_ids)
+    ]
+
+
+def _check_scope_layered_memory(report: ScanReport) -> list[ScanWarning]:
+    assert report.user is not None and report.project is not None
+    if not report.user.memory or not report.project.memory:
+        return []
+    return [
+        ScanWarning(
+            path=None,
+            category="scope_layered_memory",
+            reason=(
+                "CLAUDE.md exists at both user and project scope; "
+                "project memory layers on top of user memory"
+            ),
+        )
+    ]

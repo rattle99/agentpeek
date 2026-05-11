@@ -1,11 +1,14 @@
 import dataclasses
 from pathlib import Path
 
+from agentview.health import run_cross_scope_checks
 from agentview.models import (
+    MemoryFile,
     Plugin,
     PluginInstallation,
     ScanReport,
     ScanResult,
+    SlashCommand,
 )
 from agentview.scanner import find_project_root, redistribute_plugins, scan
 
@@ -225,3 +228,95 @@ def test_redistribute_ignores_project_path_for_other_project(tmp_path: Path) -> 
     assert redistributed.project is not None
     assert len(redistributed.user.plugins) == 1
     assert len(redistributed.project.plugins) == 0
+
+
+def _make_command(name: str) -> SlashCommand:
+    return SlashCommand(
+        path=Path(f"/x/{name}.md"),
+        name=name,
+        description=None,
+        argument_hint=None,
+        allowed_tools=(),
+        body="",
+    )
+
+
+def _make_memory(path: Path) -> MemoryFile:
+    return MemoryFile(path=path, body="content", has_frontmatter=False)
+
+
+def _build_report_full(
+    project_root: Path,
+    *,
+    user_commands: tuple[SlashCommand, ...] = (),
+    project_commands: tuple[SlashCommand, ...] = (),
+    user_plugins: tuple[Plugin, ...] = (),
+    project_plugins: tuple[Plugin, ...] = (),
+    user_memory: tuple[MemoryFile, ...] = (),
+    project_memory: tuple[MemoryFile, ...] = (),
+) -> ScanReport:
+    user = dataclasses.replace(
+        ScanResult.empty(root=Path.home() / ".claude"),
+        commands=user_commands,
+        plugins=user_plugins,
+        memory=user_memory,
+    )
+    project = dataclasses.replace(
+        ScanResult.empty(root=project_root),
+        commands=project_commands,
+        plugins=project_plugins,
+        memory=project_memory,
+    )
+    return ScanReport(user=user, project=project, project_root=project_root)
+
+
+def test_cross_scope_override_command(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj" / ".claude"
+    project_root.mkdir(parents=True)
+    report = _build_report_full(
+        project_root,
+        user_commands=(_make_command("shared"), _make_command("user-only")),
+        project_commands=(_make_command("shared"),),
+    )
+    issues = run_cross_scope_checks(report)
+    categories = [w.category for w in issues]
+    assert categories.count("scope_override_command") == 1
+
+
+def test_cross_scope_override_plugin(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj" / ".claude"
+    project_root.mkdir(parents=True)
+    inst_user = _make_installation(scope="managed")
+    inst_project = _make_installation(scope="project", project_path=project_root.parent)
+    report = _build_report_full(
+        project_root,
+        user_plugins=(_make_plugin("p@m", (inst_user,)),),
+        project_plugins=(_make_plugin("p@m", (inst_project,)),),
+    )
+    issues = run_cross_scope_checks(report)
+    categories = [w.category for w in issues]
+    assert categories.count("scope_override_plugin") == 1
+
+
+def test_cross_scope_layered_memory(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj" / ".claude"
+    project_root.mkdir(parents=True)
+    report = _build_report_full(
+        project_root,
+        user_memory=(_make_memory(Path.home() / ".claude" / "CLAUDE.md"),),
+        project_memory=(_make_memory(project_root / "CLAUDE.md"),),
+    )
+    issues = run_cross_scope_checks(report)
+    categories = [w.category for w in issues]
+    assert categories.count("scope_layered_memory") == 1
+
+
+def test_cross_scope_no_overlap_no_warnings(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj" / ".claude"
+    project_root.mkdir(parents=True)
+    report = _build_report_full(
+        project_root,
+        user_commands=(_make_command("only-user"),),
+        project_commands=(_make_command("only-project"),),
+    )
+    assert run_cross_scope_checks(report) == []
