@@ -75,6 +75,24 @@ Screen {
     color: $primary 50%;
 }
 
+#detail-body .severity-box {
+    height: auto;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+#detail-body .severity-error {
+    border: round $error;
+}
+
+#detail-body .severity-warning {
+    border: round $warning;
+}
+
+#detail-body .severity-info {
+    border: round $primary;
+}
+
 Header {
     dock: top;
 }
