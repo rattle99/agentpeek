@@ -35,8 +35,20 @@ def test_scan_local_source(sample_claude_root: Path) -> None:
     assert by_name["broken-fm"].body  # raw fallback for broken frontmatter
 
     assert len(result.plugins) == 3
-    assert len(result.memory) == 1
-    assert "sample memory file" in result.memory[0].body.lower()
+    # Memory now includes the user-level CLAUDE.md plus the auto-memory entries
+    # under `projects/-fake-project/memory/`.
+    assert len(result.memory) == 3
+    claude_md = next(m for m in result.memory if m.kind == "claude_md")
+    assert "sample memory file" in claude_md.body.lower()
+    assert claude_md.project_label is None
+
+    index = next(m for m in result.memory if m.kind == "memory_index")
+    assert index.project_label == "/fake/project"
+    assert index.path.name == "MEMORY.md"
+
+    entry = next(m for m in result.memory if m.kind == "memory_entry")
+    assert entry.project_label == "/fake/project"
+    assert entry.has_frontmatter
     assert len(result.mcp) == 1
     assert len(result.hooks) >= 2
 
@@ -242,7 +254,13 @@ def _make_command(name: str) -> SlashCommand:
 
 
 def _make_memory(path: Path) -> MemoryFile:
-    return MemoryFile(path=path, body="content", has_frontmatter=False)
+    return MemoryFile(
+        path=path,
+        body="content",
+        has_frontmatter=False,
+        kind="claude_md",
+        project_label=None,
+    )
 
 
 def _build_report_full(

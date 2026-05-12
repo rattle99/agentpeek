@@ -120,7 +120,9 @@ def _check_scope_override_plugin(report: ScanReport) -> list[ScanWarning]:
 
 def _check_scope_layered_memory(report: ScanReport) -> list[ScanWarning]:
     assert report.user is not None and report.project is not None
-    if not report.user.memory or not report.project.memory:
+    user_claude = any(m.kind == "claude_md" for m in report.user.memory)
+    project_claude = any(m.kind == "claude_md" for m in report.project.memory)
+    if not (user_claude and project_claude):
         return []
     return [
         ScanWarning(

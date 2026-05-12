@@ -8,6 +8,7 @@ from agentview.models import (
     KeybindingsBundle,
     MCPServer,
     MemoryFile,
+    MemoryKind,
     Plugin,
     PluginInstallation,
     ScanResult,
@@ -270,21 +271,35 @@ class LocalSource:
         results: list[MemoryFile] = []
         candidate = root / "CLAUDE.md"
         if candidate.is_file():
-            file, warning = load_frontmatter(candidate, category="memory")
-            if warning is not None:
-                warnings.append(warning)
-            if file is None:
-                try:
-                    body = candidate.read_text(encoding="utf-8")
-                except OSError:
-                    body = ""
-                has_fm = False
-            else:
-                body = file.body
-                has_fm = bool(file.metadata)
             results.append(
-                MemoryFile(path=candidate, body=body, has_frontmatter=has_fm)
+                _read_memory_file(
+                    candidate,
+                    kind="claude_md",
+                    project_label=None,
+                    warnings=warnings,
+                )
             )
+        projects_dir = root / "projects"
+        if projects_dir.is_dir():
+            for proj_dir in sorted(projects_dir.iterdir()):
+                mem_dir = proj_dir / "memory"
+                if not mem_dir.is_dir():
+                    continue
+                label = _decode_project_label(proj_dir.name)
+                for md_path in sorted(mem_dir.glob("*.md")):
+                    kind: MemoryKind = (
+                        "memory_index"
+                        if md_path.name == "MEMORY.md"
+                        else "memory_entry"
+                    )
+                    results.append(
+                        _read_memory_file(
+                            md_path,
+                            kind=kind,
+                            project_label=label,
+                            warnings=warnings,
+                        )
+                    )
         return tuple(results)
 
     def _scan_keybindings(
@@ -435,6 +450,41 @@ def _collect_enabled_plugins(root: Path, warnings: list[ScanWarning]) -> set[str
             )
 
     return {str(k) for k, v in {**enabled_user, **enabled_remote}.items() if bool(v)}
+
+
+def _read_memory_file(
+    path: Path,
+    *,
+    kind: MemoryKind,
+    project_label: str | None,
+    warnings: list[ScanWarning],
+) -> MemoryFile:
+    file, warning = load_frontmatter(path, category="memory")
+    if warning is not None:
+        warnings.append(warning)
+    if file is None:
+        try:
+            body = path.read_text(encoding="utf-8")
+        except OSError:
+            body = ""
+        has_fm = False
+    else:
+        body = file.body
+        has_fm = bool(file.metadata)
+    return MemoryFile(
+        path=path,
+        body=body,
+        has_frontmatter=has_fm,
+        kind=kind,
+        project_label=project_label,
+    )
+
+
+def _decode_project_label(encoded: str) -> str:
+    # Claude Code encodes project paths by replacing `/` with `-`. Decoding is
+    # best-effort: a project path that originally contained `-` will be
+    # garbled, but for the typical case it round-trips fine.
+    return encoded.replace("-", "/")
 
 
 def _parse_installations(
