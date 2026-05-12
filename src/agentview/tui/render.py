@@ -284,21 +284,29 @@ def _plugins_detail(payload: object) -> RenderableType:
     return Text("\n".join(lines))
 
 
+_MEMORY_KIND_LABEL = {
+    "claude_md": "CLAUDE",
+    "memory_index": "index",
+    "memory_entry": "entry",
+}
+
+
 def _memory_items(memory: tuple[MemoryFile, ...]) -> list[tuple[str, object]]:
-    return [
-        (
-            f"{m.path.name}  ({len(m.body)} chars"
-            f"{'  +fm' if m.has_frontmatter else ''})",
-            m,
-        )
-        for m in memory
-    ]
+    items: list[tuple[str, object]] = []
+    for m in memory:
+        kind = _MEMORY_KIND_LABEL.get(m.kind, m.kind)
+        scope = f" @ {m.project_label}" if m.project_label else ""
+        fm = " +fm" if m.has_frontmatter else ""
+        items.append((f"{kind}  {m.path.name}{scope}  ({len(m.body)} chars{fm})", m))
+    return items
 
 
 def _memory_detail(payload: object) -> RenderableType:
     if not isinstance(payload, MemoryFile):
         return Text("(no memory file selected)")
     lines = [
+        f"Kind:            {payload.kind}",
+        f"Project:         {payload.project_label or '(user-level)'}",
         f"Path:            {payload.path}",
         f"Size:            {len(payload.body)} chars",
         f"Has frontmatter: {'yes' if payload.has_frontmatter else 'no'}",
