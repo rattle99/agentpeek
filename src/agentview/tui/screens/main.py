@@ -7,12 +7,12 @@ from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
-from agentview.models import ScanResult
+from agentview.models import ScanReport
 from agentview.tui.render import (
     CATEGORIES,
-    category_count,
-    category_items,
+    items_for_report,
     render_detail,
+    sidebar_label,
 )
 
 
@@ -25,19 +25,20 @@ class MainScreen(Screen[None]):
     selected_category: reactive[str] = reactive(CATEGORIES[0][0], init=False)
     selected_index: reactive[int] = reactive(-1, init=False)
 
-    def __init__(self, result: ScanResult) -> None:
+    def __init__(self, report: ScanReport, *, explicit_root: bool = False) -> None:
         super().__init__()
-        self._result = result
+        self._report = report
+        self._explicit_root = explicit_root
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="three-zone"):
             with Vertical(id="sidebar"):
-                yield Label("Categories", classes="zone-title")
+                yield Label(self._sidebar_title(), classes="zone-title")
                 yield ListView(
                     *[
                         ListItem(
-                            Label(f"{name}  ({category_count(self._result, key)})"),
+                            Label(sidebar_label(self._report, name, key)),
                             name=key,
                         )
                         for key, name in CATEGORIES
@@ -51,6 +52,15 @@ class MainScreen(Screen[None]):
                 yield Label("Detail", classes="zone-title")
                 yield Static(id="detail-content")
         yield Footer()
+
+    def _sidebar_title(self) -> str:
+        if self._explicit_root:
+            return "Categories  (custom root)"
+        if self._report.user is not None and self._report.project is not None:
+            return "Categories  (U + P)"
+        if self._report.project is not None:
+            return "Categories  (project)"
+        return "Categories  (user)"
 
     def on_mount(self) -> None:
         # Trigger initial population by re-assigning the reactive default.
@@ -68,10 +78,12 @@ class MainScreen(Screen[None]):
 
     def watch_selected_category(self, category: str) -> None:
         item_list = self.query_one("#item-list", ListView)
-        items = category_items(self._result, category)
+        items = items_for_report(self._report, category)
         item_list.clear()
-        for label, _payload in items:
-            item_list.append(ListItem(Label(label)))
+        for label, _payload, _scope in items:
+            # markup=False: items contain brackets ([U], [P], [hooks], ...) that
+            # Rich would otherwise parse as markup tags and silently strip.
+            item_list.append(ListItem(Label(label, markup=False)))
 
         title = self.query_one("#main-title", Label)
         name = next((n for k, n in CATEGORIES if k == category), category)
@@ -82,9 +94,6 @@ class MainScreen(Screen[None]):
             self.selected_index = 0
         else:
             self.selected_index = -1
-        # Always refresh detail directly: changing categories may land on the
-        # same numeric index as before, in which case watch_selected_index
-        # wouldn't fire and the pane would stay showing the old category.
         self._refresh_detail()
 
     def watch_selected_index(self, _idx: int) -> None:
@@ -92,10 +101,10 @@ class MainScreen(Screen[None]):
 
     def _refresh_detail(self) -> None:
         detail = self.query_one("#detail-content", Static)
-        items = category_items(self._result, self.selected_category)
+        items = items_for_report(self._report, self.selected_category)
         idx = self.selected_index
         if 0 <= idx < len(items):
-            _label, payload = items[idx]
-            detail.update(render_detail(self.selected_category, payload))
+            _label, payload, scope = items[idx]
+            detail.update(render_detail(self.selected_category, payload, scope))
         else:
             detail.update("(no item selected)")

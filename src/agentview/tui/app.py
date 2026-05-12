@@ -22,5 +22,5 @@ class AgentViewApp(App[None]):
         self._source_name = source_name
 
     def on_mount(self) -> None:
-        result = scan(self._scan_root, self._source_name)
-        self.push_screen(MainScreen(result))
+        report = scan(self._scan_root, self._source_name)
+        self.push_screen(MainScreen(report, explicit_root=self._scan_root is not None))
