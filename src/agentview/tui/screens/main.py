@@ -12,6 +12,7 @@ from agentview.tui.render import (
     CATEGORIES,
     items_for_report,
     render_detail_widgets,
+    scope_summary,
     sidebar_label,
 )
 
@@ -54,13 +55,10 @@ class MainScreen(Screen[None]):
         yield Footer()
 
     def _sidebar_title(self) -> str:
-        if self._explicit_root:
-            return "Categories  (custom root)"
-        if self._report.user is not None and self._report.project is not None:
-            return "Categories  (U + P)"
-        if self._report.project is not None:
-            return "Categories  (project)"
-        return "Categories  (user)"
+        return (
+            f"Categories  "
+            f"({scope_summary(self._report, explicit_root=self._explicit_root)})"
+        )
 
     def on_mount(self) -> None:
         # Trigger initial population by re-assigning the reactive default.

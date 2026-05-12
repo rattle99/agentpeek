@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Literal, NamedTuple, cast
 
 from rich.console import RenderableType
@@ -180,6 +181,39 @@ def _card(
     if severity is not None:
         container.add_class(f"severity-{severity}")
     return container
+
+
+def scope_summary(report: ScanReport, *, explicit_root: bool = False) -> str:
+    """One-token scope hint shared between the sidebar title and the
+    app subtitle so both pull from the same source of truth.
+    """
+    if explicit_root:
+        return "custom root"
+    if report.user is not None and report.project is not None:
+        return "U + P"
+    if report.project is not None:
+        return "P"
+    return "U"
+
+
+def scope_path(report: ScanReport) -> str:
+    """Best path to show as a subtitle hint.
+
+    Prefers the project root over the user root since project scope is
+    where most variation lives. Renders home paths with a `~/` prefix.
+    """
+    target: Path | None = None
+    if report.project is not None:
+        target = report.project.root
+    elif report.user is not None:
+        target = report.user.root
+    if target is None:
+        return ""
+    home = Path.home()
+    try:
+        return f"~/{target.relative_to(home)}"
+    except ValueError:
+        return str(target)
 
 
 def category_count(result: ScanResult, key: str) -> int:
