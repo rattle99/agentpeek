@@ -36,9 +36,43 @@ Screen {
     background: $surface;
 }
 
-#detail-content {
+#detail-body {
     height: auto;
-    color: $text;
+    layout: vertical;
+}
+
+#detail-body .detail-header {
+    padding-bottom: 1;
+}
+
+#detail-body .scope-tag {
+    padding-bottom: 1;
+}
+
+#detail-body .section-title {
+    color: $primary;
+    text-style: bold;
+    padding-top: 1;
+}
+
+#detail-body .muted {
+    color: $text-muted;
+}
+
+#detail-body DataTable {
+    margin-top: 1;
+    height: auto;
+    max-height: 12;
+}
+
+#detail-body Markdown {
+    margin-top: 1;
+    background: $surface;
+}
+
+#detail-body Rule {
+    margin: 0;
+    color: $primary 50%;
 }
 
 Header {
