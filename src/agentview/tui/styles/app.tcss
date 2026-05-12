@@ -9,19 +9,22 @@ Screen {
 
 #sidebar {
     width: 28;
-    border-right: solid $primary;
-    padding: 0 1;
+    background: $surface 70%;
+    border-right: solid $primary 60%;
+    padding: 1 1;
 }
 
 #main-panel {
     width: 1fr;
-    border-right: solid $primary;
-    padding: 0 1;
+    background: $surface 40%;
+    border-right: solid $primary 60%;
+    padding: 1 1;
 }
 
 #detail-pane {
     width: 2fr;
-    padding: 0 1;
+    background: $surface 15%;
+    padding: 1 2;
 }
 
 .zone-title {
@@ -33,7 +36,7 @@ Screen {
 #category-list,
 #item-list {
     height: 1fr;
-    background: $surface;
+    background: transparent;
 }
 
 #detail-body {
@@ -58,9 +61,10 @@ Screen {
    theme; `:focus-within` thickens to full alpha. */
 #detail-body .section-card {
     height: auto;
+    background: $surface;
     border: round $accent 40%;
     border-title-color: $text-accent 60%;
-    padding: 0 1;
+    padding: 0 2;
     margin-bottom: 1;
 }
 
