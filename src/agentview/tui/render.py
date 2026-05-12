@@ -8,7 +8,7 @@ from rich.text import Text
 from textual.containers import Container
 from textual.content import Content
 from textual.widget import Widget
-from textual.widgets import DataTable, Markdown, Rule, Static
+from textual.widgets import DataTable, Markdown, Static
 
 from agentview.models import (
     HookSpec,
@@ -164,16 +164,22 @@ class _PendingDataTable(DataTable[str]):
             self.add_row(*row)
 
 
-def _section(title: str) -> list[Widget]:
-    """Section header — a styled title above a horizontal Rule.
+def _card(
+    title: str, *children: Widget, severity: Severity | None = None
+) -> Container:
+    """Wrap children in a titled bordered Container.
 
-    Textual's Rule widget doesn't support inline titles, so this pairs
-    a styled Static with a plain Rule.
+    Visual idiom borrowed from Posting's `.section`: rounded border at
+    40% accent alpha, title rendered into the top-left of the border,
+    border thickens on focus-within. Severity-tagged cards use the
+    severity color instead of `$accent` and add a `.severity-<sev>`
+    class so CSS can drive both the border color and the title color.
     """
-    return [
-        Static(_styled(title, f"bold {COLOR_PRIMARY}"), classes="section-title"),
-        Rule(),
-    ]
+    container = Container(*children, classes="section-card")
+    container.border_title = title
+    if severity is not None:
+        container.add_class(f"severity-{severity}")
+    return container
 
 
 def category_count(result: ScanResult, key: str) -> int:
@@ -379,7 +385,10 @@ def _settings_detail_widgets(payload: object) -> list[Widget]:
     header = Static(
         _styled(payload.label, f"bold {COLOR_PRIMARY}"), classes="detail-header"
     )
-    return [header, _settings_body(payload)]
+    body = _settings_body(payload)
+    if payload.kind in ("dict", "list"):
+        return [header, _card("Items", body)]
+    return [header, body]
 
 
 def _settings_body(payload: _SettingsItem) -> Widget:
@@ -449,17 +458,19 @@ def _hooks_detail_widgets(payload: object) -> list[Widget]:
             else _muted_cell("(default)"),
         ),
     ]
-    widgets: list[Widget] = [Static(_kv_table(rows))]
-    widgets.extend(_section("Command"))
+    widgets: list[Widget] = [_card("Properties", Static(_kv_table(rows)))]
     widgets.append(
-        Static(
-            Syntax(
-                payload.command,
-                "bash",
-                theme="ansi_dark",
-                word_wrap=True,
-                background_color="default",
-            )
+        _card(
+            "Command",
+            Static(
+                Syntax(
+                    payload.command,
+                    "bash",
+                    theme="ansi_dark",
+                    word_wrap=True,
+                    background_color="default",
+                )
+            ),
         )
     )
     if payload.referenced_script is not None:
@@ -474,7 +485,7 @@ def _hooks_detail_widgets(payload: object) -> list[Widget]:
             "  ",
             (str(payload.referenced_script), COLOR_MUTED),
         )
-        widgets.append(Static(script_line))
+        widgets.append(_card("Script", Static(script_line)))
     return widgets
 
 
@@ -517,9 +528,8 @@ def _commands_detail_widgets(payload: object) -> list[Widget]:
         ),
         ("Allowed tools", tools),
     ]
-    widgets.append(Static(_kv_table(rows)))
-    widgets.extend(_section("Body"))
-    widgets.append(Markdown(payload.body or "_(empty)_"))
+    widgets.append(_card("Properties", Static(_kv_table(rows))))
+    widgets.append(_card("Body", Markdown(payload.body or "_(empty)_")))
     return widgets
 
 
@@ -558,10 +568,12 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
         ("ID", payload.id),
         ("Marketplace", payload.marketplace or _muted_cell("(none)")),
     ]
-    widgets.append(Static(_kv_table(rows)))
-    widgets.extend(_section(f"Installations ({len(payload.installations)})"))
+    widgets.append(_card("Properties", Static(_kv_table(rows))))
+    title = f"Installations ({len(payload.installations)})"
     if not payload.installations:
-        widgets.append(Static("(no installations on disk)", classes="muted"))
+        widgets.append(
+            _card(title, Static("(no installations on disk)", classes="muted"))
+        )
     else:
         install_rows: tuple[tuple[str, ...], ...] = tuple(
             (
@@ -575,9 +587,12 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
             for i, inst in enumerate(payload.installations, 1)
         )
         widgets.append(
-            _PendingDataTable(
-                columns=("#", "scope", "version", "git", "path", "project"),
-                rows=install_rows,
+            _card(
+                title,
+                _PendingDataTable(
+                    columns=("#", "scope", "version", "git", "path", "project"),
+                    rows=install_rows,
+                ),
             )
         )
     return widgets
@@ -633,9 +648,8 @@ def _memory_detail_widgets(payload: object) -> list[Widget]:
         ("Path", str(payload.path)),
         ("Size", f"{len(payload.body)} chars"),
     ]
-    widgets.append(Static(_kv_table(rows)))
-    widgets.extend(_section("Body"))
-    widgets.append(Markdown(payload.body or "_(empty)_"))
+    widgets.append(_card("Properties", Static(_kv_table(rows))))
+    widgets.append(_card("Body", Markdown(payload.body or "_(empty)_")))
     return widgets
 
 
@@ -667,7 +681,7 @@ def _keybindings_detail_widgets(payload: object) -> list[Widget]:
         ("Key", Text(payload.key, style="bold")),
         ("Action", payload.action),
     ]
-    return [Static(_kv_table(rows))]
+    return [_card("Properties", Static(_kv_table(rows)))]
 
 
 # --- MCP servers --------------------------------------------------------
@@ -699,16 +713,21 @@ def _mcp_detail_widgets(payload: object) -> list[Widget]:
         ("Command", payload.command or _muted_cell("(none)")),
         ("Args", args),
     ]
-    widgets.append(Static(_kv_table(rows)))
-    widgets.extend(_section(f"Environment ({len(payload.env)})"))
+    widgets.append(_card("Properties", Static(_kv_table(rows))))
+    title = f"Environment ({len(payload.env)})"
     if not payload.env:
-        widgets.append(Static("(no env vars)", classes="muted"))
+        widgets.append(_card(title, Static("(no env vars)", classes="muted")))
     else:
         env_rows: tuple[tuple[str, ...], ...] = tuple(
             (k, redact(payload.env[k])) for k in sorted(payload.env.keys())
         )
         widgets.append(
-            _PendingDataTable(columns=("Key", "Value (redacted)"), rows=env_rows)
+            _card(
+                title,
+                _PendingDataTable(
+                    columns=("Key", "Value (redacted)"), rows=env_rows
+                ),
+            )
         )
     return widgets
 
@@ -745,9 +764,5 @@ def _warnings_detail_widgets(payload: object) -> list[Widget]:
     ]
     if payload.path:
         widgets.append(Static(_styled(str(payload.path), COLOR_MUTED)))
-    # Rich Panel borders don't substitute Textual theme vars, so we use a
-    # Textual Container with CSS-driven border for theme-following color.
-    widgets.append(
-        Container(Static(payload.reason), classes=f"severity-box severity-{sev}")
-    )
+    widgets.append(_card("Reason", Static(payload.reason), severity=sev))
     return widgets

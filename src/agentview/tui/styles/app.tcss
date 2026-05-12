@@ -49,48 +49,49 @@ Screen {
     padding-bottom: 1;
 }
 
-#detail-body .section-title {
-    color: $primary;
-    text-style: bold;
-    padding-top: 1;
-}
-
 #detail-body .muted {
     color: $text-muted;
 }
 
+/* Card pattern — borrowed from Posting's `.section`. Rounded border at
+   40% accent alpha so cards anchor sections without overpowering the
+   theme; `:focus-within` thickens to full alpha. */
+#detail-body .section-card {
+    height: auto;
+    border: round $accent 40%;
+    border-title-color: $text-accent 60%;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+#detail-body .section-card:focus-within {
+    border: round $accent;
+    border-title-style: bold;
+    border-title-color: $text-accent;
+}
+
+#detail-body .section-card.severity-error {
+    border: round $error;
+    border-title-color: $error;
+}
+
+#detail-body .section-card.severity-warning {
+    border: round $warning;
+    border-title-color: $warning;
+}
+
+#detail-body .section-card.severity-info {
+    border: round $primary;
+    border-title-color: $primary;
+}
+
 #detail-body DataTable {
-    margin-top: 1;
     height: auto;
     max-height: 12;
 }
 
 #detail-body Markdown {
-    margin-top: 1;
     background: $surface;
-}
-
-#detail-body Rule {
-    margin: 0;
-    color: $primary 50%;
-}
-
-#detail-body .severity-box {
-    height: auto;
-    padding: 0 1;
-    margin-top: 1;
-}
-
-#detail-body .severity-error {
-    border: round $error;
-}
-
-#detail-body .severity-warning {
-    border: round $warning;
-}
-
-#detail-body .severity-info {
-    border: round $primary;
 }
 
 Header {
