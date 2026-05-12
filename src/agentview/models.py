@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,11 +69,16 @@ class Plugin:
     installations: tuple[PluginInstallation, ...]
 
 
+MemoryKind = Literal["claude_md", "memory_index", "memory_entry"]
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryFile:
     path: Path
     body: str
     has_frontmatter: bool
+    kind: MemoryKind
+    project_label: str | None
 
 
 @dataclass(frozen=True, slots=True)
