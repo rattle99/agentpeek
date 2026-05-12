@@ -39,6 +39,26 @@ Screen {
     background: transparent;
 }
 
+/* Selection emphasis — highlighted row uses $accent. The focused list
+   gets a stronger tint and bold text so the user always knows which of
+   the three zones the keyboard is driving. */
+ListView > ListItem.--highlight {
+    background: $accent 25%;
+}
+
+ListView:focus > ListItem.--highlight {
+    background: $accent 50%;
+    text-style: bold;
+}
+
+/* Focus rail — re-tint each zone's heading when that zone is focused.
+   No border shifts, no layout reflow. */
+#sidebar:focus-within > .zone-title,
+#main-panel:focus-within > .zone-title,
+#detail-pane:focus-within > .zone-title {
+    color: $accent;
+}
+
 #detail-body {
     height: auto;
     layout: vertical;
