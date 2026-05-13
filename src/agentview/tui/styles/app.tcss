@@ -9,19 +9,22 @@ Screen {
 
 #sidebar {
     width: 28;
-    border-right: solid $primary;
-    padding: 0 1;
+    background: $surface 70%;
+    border-right: solid $primary 60%;
+    padding: 1 1;
 }
 
 #main-panel {
     width: 1fr;
-    border-right: solid $primary;
-    padding: 0 1;
+    background: $surface 40%;
+    border-right: solid $primary 60%;
+    padding: 1 1;
 }
 
 #detail-pane {
     width: 2fr;
-    padding: 0 1;
+    background: $surface 15%;
+    padding: 1 2;
 }
 
 .zone-title {
@@ -33,12 +36,118 @@ Screen {
 #category-list,
 #item-list {
     height: 1fr;
-    background: $surface;
+    background: transparent;
 }
 
-#detail-content {
+/* Sidebar two-column row — name expands, count chip stays auto-sized
+   on the right. */
+#category-list Horizontal {
     height: auto;
-    color: $text;
+    width: 1fr;
+}
+
+#category-list .sidebar-name {
+    width: 1fr;
+}
+
+#category-list .sidebar-count {
+    width: auto;
+    color: $text-muted;
+}
+
+/* Breathing room — horizontal padding inside each row plus a quiet
+   hkey divider so consecutive rows visually separate without forcing
+   tall rows. */
+#category-list > ListItem,
+#item-list > ListItem {
+    padding: 0 1;
+    border-bottom: hkey $surface 20%;
+}
+
+#category-list > ListItem:last-child,
+#item-list > ListItem:last-child {
+    border-bottom: none;
+}
+
+/* Selection emphasis — highlighted row uses $accent. The focused list
+   gets a stronger tint and bold text so the user always knows which of
+   the three zones the keyboard is driving. */
+ListView > ListItem.--highlight {
+    background: $accent 25%;
+}
+
+ListView:focus > ListItem.--highlight {
+    background: $accent 50%;
+    text-style: bold;
+}
+
+#detail-body {
+    height: auto;
+    layout: vertical;
+}
+
+/* Per-item hero header — bottom rule anchors the title against the
+   cards below. */
+#detail-body .detail-header {
+    padding-bottom: 0;
+    margin-bottom: 1;
+    border-bottom: hkey $accent 30%;
+}
+
+/* Scope tag becomes a compact chip alongside the title rather than a
+   full-width label-block. Auto width so it hugs its content. */
+#detail-body .scope-tag {
+    width: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: $primary 20%;
+    color: $primary;
+}
+
+#detail-body .muted {
+    color: $text-muted;
+}
+
+/* Card pattern — borrowed from Posting's `.section`. Rounded border at
+   40% accent alpha so cards anchor sections without overpowering the
+   theme; `:focus-within` thickens to full alpha. */
+#detail-body .section-card {
+    height: auto;
+    background: $surface;
+    border: round $accent 40%;
+    border-title-color: $text-accent 60%;
+    padding: 0 2;
+    margin-bottom: 1;
+}
+
+#detail-body .section-card:focus-within {
+    border: round $accent;
+    border-title-style: bold;
+    border-title-color: $text-accent;
+}
+
+#detail-body .section-card.severity-error {
+    border: round $error;
+    border-title-color: $error;
+}
+
+#detail-body .section-card.severity-warning {
+    border: round $warning;
+    border-title-color: $warning;
+}
+
+#detail-body .section-card.severity-info {
+    border: round $primary;
+    border-title-color: $primary;
+}
+
+#detail-body DataTable {
+    height: auto;
+    max-height: 12;
+}
+
+#detail-body Markdown {
+    background: $surface;
 }
 
 Header {

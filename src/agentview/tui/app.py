@@ -5,6 +5,7 @@ from textual.app import App
 from textual.binding import Binding, BindingType
 
 from agentview.scanner import scan
+from agentview.tui.render import scope_path, scope_summary
 from agentview.tui.screens.main import MainScreen
 
 
@@ -23,4 +24,8 @@ class AgentViewApp(App[None]):
 
     def on_mount(self) -> None:
         report = scan(self._scan_root, self._source_name)
-        self.push_screen(MainScreen(report, explicit_root=self._scan_root is not None))
+        explicit = self._scan_root is not None
+        summary = scope_summary(report, explicit_root=explicit)
+        path = scope_path(report)
+        self.sub_title = f"{summary} · {path}" if path else summary
+        self.push_screen(MainScreen(report, explicit_root=explicit))

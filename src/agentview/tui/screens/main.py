@@ -2,7 +2,7 @@ from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
@@ -11,8 +11,9 @@ from agentview.models import ScanReport
 from agentview.tui.render import (
     CATEGORIES,
     items_for_report,
-    render_detail,
-    sidebar_label,
+    render_detail_widgets,
+    scope_summary,
+    sidebar_count,
 )
 
 
@@ -38,7 +39,13 @@ class MainScreen(Screen[None]):
                 yield ListView(
                     *[
                         ListItem(
-                            Label(sidebar_label(self._report, name, key)),
+                            Horizontal(
+                                Label(name, classes="sidebar-name"),
+                                Label(
+                                    sidebar_count(self._report, key),
+                                    classes="sidebar-count",
+                                ),
+                            ),
                             name=key,
                         )
                         for key, name in CATEGORIES
@@ -50,17 +57,14 @@ class MainScreen(Screen[None]):
                 yield ListView(id="item-list")
             with VerticalScroll(id="detail-pane"):
                 yield Label("Detail", classes="zone-title")
-                yield Static(id="detail-content")
+                yield Container(id="detail-body")
         yield Footer()
 
     def _sidebar_title(self) -> str:
-        if self._explicit_root:
-            return "Categories  (custom root)"
-        if self._report.user is not None and self._report.project is not None:
-            return "Categories  (U + P)"
-        if self._report.project is not None:
-            return "Categories  (project)"
-        return "Categories  (user)"
+        return (
+            f"Categories  "
+            f"({scope_summary(self._report, explicit_root=self._explicit_root)})"
+        )
 
     def on_mount(self) -> None:
         # Trigger initial population by re-assigning the reactive default.
@@ -76,14 +80,14 @@ class MainScreen(Screen[None]):
             if idx is not None:
                 self.selected_index = idx
 
-    def watch_selected_category(self, category: str) -> None:
+    async def watch_selected_category(self, category: str) -> None:
         item_list = self.query_one("#item-list", ListView)
         items = items_for_report(self._report, category)
-        item_list.clear()
+        await item_list.clear()
         for label, _payload, _scope in items:
-            # markup=False: items contain brackets ([U], [P], [hooks], ...) that
-            # Rich would otherwise parse as markup tags and silently strip.
-            item_list.append(ListItem(Label(label, markup=False)))
+            # `label` is a styled rich.text.Text — brackets are literal
+            # segments already, so no markup escaping is needed.
+            item_list.append(ListItem(Label(label)))
 
         title = self.query_one("#main-title", Label)
         name = next((n for k, n in CATEGORIES if k == category), category)
@@ -94,17 +98,20 @@ class MainScreen(Screen[None]):
             self.selected_index = 0
         else:
             self.selected_index = -1
-        self._refresh_detail()
+        await self._refresh_detail()
 
-    def watch_selected_index(self, _idx: int) -> None:
-        self._refresh_detail()
+    async def watch_selected_index(self, _idx: int) -> None:
+        await self._refresh_detail()
 
-    def _refresh_detail(self) -> None:
-        detail = self.query_one("#detail-content", Static)
+    async def _refresh_detail(self) -> None:
+        container = self.query_one("#detail-body", Container)
         items = items_for_report(self._report, self.selected_category)
         idx = self.selected_index
+        await container.remove_children()
         if 0 <= idx < len(items):
             _label, payload, scope = items[idx]
-            detail.update(render_detail(self.selected_category, payload, scope))
+            widgets = render_detail_widgets(self.selected_category, payload, scope)
+            if widgets:
+                await container.mount_all(widgets)
         else:
-            detail.update("(no item selected)")
+            await container.mount(Static("(no item selected)", classes="muted"))
