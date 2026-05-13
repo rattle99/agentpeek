@@ -1,4 +1,4 @@
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -16,11 +16,15 @@ from agentview.tui.render import (
     sidebar_count,
 )
 
+if TYPE_CHECKING:
+    from agentview.tui.app import AgentViewApp
+
 
 class MainScreen(Screen[None]):
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit", show=False),
+        Binding("r", "refresh", "Refresh"),
     ]
 
     selected_category: reactive[str] = reactive(CATEGORIES[0][0], init=False)
@@ -115,3 +119,18 @@ class MainScreen(Screen[None]):
                 await container.mount_all(widgets)
         else:
             await container.mount(Static("(no item selected)", classes="muted"))
+
+    async def action_refresh(self) -> None:
+        """Re-scan disk and rebuild every list/count/detail in place."""
+        app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
+        self._report = app.rescan()
+        for item in self.query("#category-list > ListItem").results():
+            key = item.name
+            if key is None:
+                continue
+            count_label = item.query_one(".sidebar-count", Label)
+            count_label.update(sidebar_count(self._report, key))
+        self.query_one("#sidebar > .zone-title", Label).update(self._sidebar_title())
+        # Rebuild items + detail for the active category.
+        await self.watch_selected_category(self.selected_category)
+        self.notify("Rescanned", timeout=2)
