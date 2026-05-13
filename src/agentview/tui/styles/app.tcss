@@ -86,12 +86,22 @@ ListView:focus > ListItem.--highlight {
     layout: vertical;
 }
 
+/* Per-item hero header — bottom rule anchors the title against the
+   cards below. */
 #detail-body .detail-header {
-    padding-bottom: 1;
+    padding-bottom: 0;
+    margin-bottom: 1;
+    border-bottom: hkey $accent 30%;
 }
 
+/* Scope tag becomes a compact chip alongside the title rather than a
+   full-width label-block. Auto width so it hugs its content. */
 #detail-body .scope-tag {
-    padding-bottom: 1;
+    width: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: $primary 20%;
+    color: $primary;
 }
 
 #detail-body .muted {
