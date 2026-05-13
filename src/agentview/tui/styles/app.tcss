@@ -51,14 +51,6 @@ ListView:focus > ListItem.--highlight {
     text-style: bold;
 }
 
-/* Focus rail — re-tint each zone's heading when that zone is focused.
-   No border shifts, no layout reflow. */
-#sidebar:focus-within > .zone-title,
-#main-panel:focus-within > .zone-title,
-#detail-pane:focus-within > .zone-title {
-    color: $accent;
-}
-
 #detail-body {
     height: auto;
     layout: vertical;
