@@ -30,6 +30,7 @@ class MainScreen(Screen[None]):
         Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("r", "refresh", "Refresh"),
         Binding("o", "open", "Open"),
+        Binding("y", "yank", "Yank path"),
     ]
 
     selected_category: reactive[str] = reactive(CATEGORIES[0][0], init=False)
@@ -136,6 +137,16 @@ class MainScreen(Screen[None]):
         if result is None:
             return None
         return item_path(payload, result)
+
+    def action_yank(self) -> None:
+        """Copy the highlighted item's path to the clipboard via OSC 52."""
+        path = self._current_path()
+        if path is None:
+            self.notify("No path to copy", severity="warning", timeout=2)
+            return
+        app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
+        app.copy_to_clipboard(str(path))
+        self.notify(f"Copied {path}", timeout=2)
 
     def action_open(self) -> None:
         """Open the highlighted item's file in $EDITOR (suspending the TUI)."""
