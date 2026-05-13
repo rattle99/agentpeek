@@ -8,7 +8,7 @@ from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
+from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
 from agentview.models import ScanReport
 from agentview.tui.render import (
@@ -31,10 +31,13 @@ class MainScreen(Screen[None]):
         Binding("r", "refresh", "Refresh"),
         Binding("o", "open", "Open"),
         Binding("y", "yank", "Yank path"),
+        Binding("slash", "focus_filter", "Filter"),
+        Binding("escape", "clear_filter", show=False),
     ]
 
     selected_category: reactive[str] = reactive(CATEGORIES[0][0], init=False)
     selected_index: reactive[int] = reactive(-1, init=False)
+    filter_text: reactive[str] = reactive("", init=False)
 
     def __init__(self, report: ScanReport, *, explicit_root: bool = False) -> None:
         super().__init__()
@@ -64,6 +67,9 @@ class MainScreen(Screen[None]):
                 )
             with Vertical(id="main-panel"):
                 yield Label("Items", classes="zone-title", id="main-title")
+                filter_input = Input(placeholder="filter…", id="filter-input")
+                filter_input.display = False
+                yield filter_input
                 yield ListView(id="item-list")
             with VerticalScroll(id="detail-pane"):
                 yield Label("Detail", classes="zone-title")
@@ -90,27 +96,36 @@ class MainScreen(Screen[None]):
             if idx is not None:
                 self.selected_index = idx
 
-    async def watch_selected_category(self, category: str) -> None:
+    async def watch_selected_category(self, _category: str) -> None:
+        await self._rebuild_items()
+
+    async def watch_selected_index(self, _idx: int) -> None:
+        await self._refresh_detail()
+
+    async def watch_filter_text(self, _text: str) -> None:
+        await self._rebuild_items()
+
+    async def _rebuild_items(self) -> None:
+        """Rebuild the items list for the active category, honoring filter."""
         item_list = self.query_one("#item-list", ListView)
-        items = items_for_report(self._report, category)
+        items = items_for_report(self._report, self.selected_category)
+        if self.filter_text:
+            needle = self.filter_text.lower()
+            items = [it for it in items if needle in it[0].plain.lower()]
         await item_list.clear()
         for label, _payload, _scope in items:
-            # `label` is a styled rich.text.Text — brackets are literal
-            # segments already, so no markup escaping is needed.
             item_list.append(ListItem(Label(label)))
-
         title = self.query_one("#main-title", Label)
-        name = next((n for k, n in CATEGORIES if k == category), category)
+        name = next(
+            (n for k, n in CATEGORIES if k == self.selected_category),
+            self.selected_category,
+        )
         title.update(f"{name}  ({len(items)})")
-
         if items:
             item_list.index = 0
             self.selected_index = 0
         else:
             self.selected_index = -1
-        await self._refresh_detail()
-
-    async def watch_selected_index(self, _idx: int) -> None:
         await self._refresh_detail()
 
     async def _refresh_detail(self) -> None:
@@ -137,6 +152,29 @@ class MainScreen(Screen[None]):
         if result is None:
             return None
         return item_path(payload, result)
+
+    def action_focus_filter(self) -> None:
+        """Show + focus the filter input."""
+        flt = self.query_one("#filter-input", Input)
+        flt.display = True
+        flt.focus()
+
+    def action_clear_filter(self) -> None:
+        """Escape: clear the filter, hide the input, refocus the items list."""
+        flt = self.query_one("#filter-input", Input)
+        if not flt.has_focus and not self.filter_text:
+            return
+        flt.value = ""
+        flt.display = False
+        self.query_one("#item-list", ListView).focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "filter-input":
+            self.filter_text = event.value
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "filter-input":
+            self.query_one("#item-list", ListView).focus()
 
     def action_yank(self) -> None:
         """Copy the highlighted item's path to the clipboard via OSC 52."""

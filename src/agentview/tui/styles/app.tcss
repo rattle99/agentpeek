@@ -39,6 +39,16 @@ Screen {
     background: transparent;
 }
 
+#filter-input {
+    height: 3;
+    margin-bottom: 1;
+    border: round $accent 40%;
+}
+
+#filter-input:focus {
+    border: round $accent;
+}
+
 /* Sidebar two-column row — name expands, count chip stays auto-sized
    on the right. */
 #category-list Horizontal {
