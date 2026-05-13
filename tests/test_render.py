@@ -6,7 +6,7 @@ from agentview.tui.render import (
     COLOR_MUTED,
     COLOR_WARNING,
     redact,
-    sidebar_label,
+    sidebar_count,
     warning_severity,
 )
 
@@ -54,20 +54,19 @@ def _styles(label: object) -> list[str]:
     return [str(span.style) for span in label.spans]  # type: ignore[attr-defined]
 
 
-def test_sidebar_label_zero_counts_styled_muted() -> None:
-    # Settings category has count 1 in user (settings is None → 0) but
-    # in our empty fixture both scopes give 0 → both halves should be muted.
+def test_sidebar_count_zero_counts_styled_muted() -> None:
+    # Empty fixture: settings count is 0 in both scopes → muted style.
     report = _make_report_with_warnings(0)
-    label = sidebar_label(report, "Settings", "settings")
+    label = sidebar_count(report, "settings")
     # Multi-scope mode renders "U:0 P:0" — every count span should be muted.
     assert COLOR_MUTED in " ".join(_styles(label))
 
 
-def test_sidebar_label_warnings_count_styled_warning() -> None:
+def test_sidebar_count_warnings_count_styled_warning() -> None:
     # Three plugin_state warnings on the user side → user count should
-    # render in the warning color (bold yellow), project count stays muted.
+    # render in the warning color, project count stays muted.
     report = _make_report_with_warnings(3)
-    label = sidebar_label(report, "Scan warnings", "warnings")
+    label = sidebar_count(report, "warnings")
     styles = " ".join(_styles(label))
     assert COLOR_WARNING in styles
     assert COLOR_MUTED in styles  # project zero count still dim

@@ -13,7 +13,7 @@ from agentview.tui.render import (
     items_for_report,
     render_detail_widgets,
     scope_summary,
-    sidebar_label,
+    sidebar_count,
 )
 
 
@@ -39,7 +39,13 @@ class MainScreen(Screen[None]):
                 yield ListView(
                     *[
                         ListItem(
-                            Label(sidebar_label(self._report, name, key)),
+                            Horizontal(
+                                Label(name, classes="sidebar-name"),
+                                Label(
+                                    sidebar_count(self._report, key),
+                                    classes="sidebar-count",
+                                ),
+                            ),
                             name=key,
                         )
                         for key, name in CATEGORIES

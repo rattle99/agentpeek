@@ -39,6 +39,22 @@ Screen {
     background: transparent;
 }
 
+/* Sidebar two-column row — name expands, count chip stays auto-sized
+   on the right. */
+#category-list Horizontal {
+    height: auto;
+    width: 1fr;
+}
+
+#category-list .sidebar-name {
+    width: 1fr;
+}
+
+#category-list .sidebar-count {
+    width: auto;
+    color: $text-muted;
+}
+
 /* Breathing room — horizontal padding inside each row plus a quiet
    hkey divider so consecutive rows visually separate without forcing
    tall rows. */

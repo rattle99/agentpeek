@@ -230,28 +230,26 @@ def category_count(result: ScanResult, key: str) -> int:
     return counts.get(key, 0)
 
 
-def sidebar_label(report: ScanReport, name: str, key: str) -> Content:
-    """Build a Textual Content for the sidebar with theme-following counts.
+def sidebar_count(report: ScanReport, key: str) -> Content:
+    """Build the count portion of a sidebar row.
 
-    Zero counts render in $text-muted; non-zero counts in default text;
-    warnings row with a non-zero count rendered in $warning so
-    attention-needing categories stand out.
+    Returns just the count badge so the sidebar can render the name on
+    the left and the count right-aligned in its own column. Zero counts
+    render in `$text-muted`; non-zero in default text; warnings row with
+    a non-zero count rendered in `$warning` so attention-needing
+    categories stand out.
     """
     user_n = category_count(report.user, key) if report.user else 0
     project_n = category_count(report.project, key) if report.project else 0
     if report.user is not None and report.project is not None:
         return Content.assemble(
-            f"{name}  ",
             ("U:", COLOR_MUTED),
             (str(user_n), _count_style(key, user_n)),
             (" P:", COLOR_MUTED),
             (str(project_n), _count_style(key, project_n)),
         )
     total = user_n + project_n
-    return Content.assemble(
-        f"{name}  ",
-        (f"({total})", _count_style(key, total)),
-    )
+    return Content.assemble((f"({total})", _count_style(key, total)))
 
 
 def _count_style(key: str, n: int) -> str:
