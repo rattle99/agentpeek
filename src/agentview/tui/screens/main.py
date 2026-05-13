@@ -1,3 +1,6 @@
+import os
+import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
 
 from textual.app import ComposeResult
@@ -10,6 +13,7 @@ from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 from agentview.models import ScanReport
 from agentview.tui.render import (
     CATEGORIES,
+    item_path,
     items_for_report,
     render_detail_widgets,
     scope_summary,
@@ -25,6 +29,7 @@ class MainScreen(Screen[None]):
         Binding("q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("r", "refresh", "Refresh"),
+        Binding("o", "open", "Open"),
     ]
 
     selected_category: reactive[str] = reactive(CATEGORIES[0][0], init=False)
@@ -119,6 +124,29 @@ class MainScreen(Screen[None]):
                 await container.mount_all(widgets)
         else:
             await container.mount(Static("(no item selected)", classes="muted"))
+
+    def _current_path(self) -> Path | None:
+        """Resolve the path of the currently highlighted item, if any."""
+        items = items_for_report(self._report, self.selected_category)
+        idx = self.selected_index
+        if not 0 <= idx < len(items):
+            return None
+        _label, payload, scope = items[idx]
+        result = self._report.user if scope == "user" else self._report.project
+        if result is None:
+            return None
+        return item_path(payload, result)
+
+    def action_open(self) -> None:
+        """Open the highlighted item's file in $EDITOR (suspending the TUI)."""
+        path = self._current_path()
+        if path is None:
+            self.notify("No file path for this item", severity="warning", timeout=2)
+            return
+        editor = os.environ.get("EDITOR", "vi")
+        app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
+        with app.suspend():
+            subprocess.run([editor, str(path)], check=False)
 
     async def action_refresh(self) -> None:
         """Re-scan disk and rebuild every list/count/detail in place."""

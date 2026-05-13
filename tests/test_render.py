@@ -1,10 +1,23 @@
 import dataclasses
 from pathlib import Path
 
-from agentview.models import ScanReport, ScanResult, ScanWarning
+from agentview.models import (
+    HookSpec,
+    KeybindingEntry,
+    KeybindingsBundle,
+    MCPServer,
+    MemoryFile,
+    Plugin,
+    PluginInstallation,
+    ScanReport,
+    ScanResult,
+    ScanWarning,
+    SlashCommand,
+)
 from agentview.tui.render import (
     COLOR_MUTED,
     COLOR_WARNING,
+    item_path,
     redact,
     sidebar_count,
     warning_severity,
@@ -70,3 +83,99 @@ def test_sidebar_count_warnings_count_styled_warning() -> None:
     styles = " ".join(_styles(label))
     assert COLOR_WARNING in styles
     assert COLOR_MUTED in styles  # project zero count still dim
+
+
+def _empty_result() -> ScanResult:
+    return ScanResult.empty(root=Path("/r/.claude"))
+
+
+def test_item_path_memory() -> None:
+    m = MemoryFile(
+        path=Path("/r/CLAUDE.md"),
+        body="x",
+        has_frontmatter=False,
+        kind="claude_md",
+        project_label=None,
+    )
+    assert item_path(m, _empty_result()) == Path("/r/CLAUDE.md")
+
+
+def test_item_path_slash_command() -> None:
+    c = SlashCommand(
+        path=Path("/r/cmd.md"),
+        name="cmd",
+        description=None,
+        argument_hint=None,
+        allowed_tools=(),
+        body="",
+    )
+    assert item_path(c, _empty_result()) == Path("/r/cmd.md")
+
+
+def test_item_path_hook_with_referenced_script() -> None:
+    h = HookSpec(
+        event="PreToolUse",
+        matcher=None,
+        type="command",
+        command="bash s.sh",
+        timeout=None,
+        referenced_script=Path("/r/s.sh"),
+        script_exists=True,
+    )
+    assert item_path(h, _empty_result()) == Path("/r/s.sh")
+
+
+def test_item_path_hook_inline_command_returns_none() -> None:
+    h = HookSpec(
+        event="PreToolUse",
+        matcher=None,
+        type="command",
+        command="echo inline",
+        timeout=None,
+        referenced_script=None,
+        script_exists=False,
+    )
+    assert item_path(h, _empty_result()) is None
+
+
+def test_item_path_plugin_first_installation() -> None:
+    inst = PluginInstallation(
+        scope="user",
+        install_path=Path("/r/plugin"),
+        version="1.0",
+        installed_at="t",
+        last_updated="t",
+        git_commit_sha=None,
+        project_path=None,
+    )
+    p = Plugin(
+        id="alpha",
+        marketplace="m",
+        qualified_id="alpha@m",
+        enabled=True,
+        installations=(inst,),
+    )
+    assert item_path(p, _empty_result()) == Path("/r/plugin")
+
+
+def test_item_path_mcp() -> None:
+    s = MCPServer(
+        name="srv",
+        source_path=Path("/r/.claude.json"),
+        command="srv",
+        args=(),
+        env={},
+    )
+    assert item_path(s, _empty_result()) == Path("/r/.claude.json")
+
+
+def test_item_path_warning() -> None:
+    w = ScanWarning(path=Path("/r/x"), category="hooks", reason="bad")
+    assert item_path(w, _empty_result()) == Path("/r/x")
+
+
+def test_item_path_keybinding_uses_bundle_path() -> None:
+    e = KeybindingEntry(context="global", key="ctrl+x", action="quit")
+    kb = KeybindingsBundle(path=Path("/r/keybindings.json"), entries=(e,))
+    result = dataclasses.replace(_empty_result(), keybindings=kb)
+    assert item_path(e, result) == Path("/r/keybindings.json")
