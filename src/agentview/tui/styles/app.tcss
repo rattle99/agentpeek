@@ -39,6 +39,20 @@ Screen {
     background: transparent;
 }
 
+/* Breathing room — horizontal padding inside each row plus a quiet
+   hkey divider so consecutive rows visually separate without forcing
+   tall rows. */
+#category-list > ListItem,
+#item-list > ListItem {
+    padding: 0 1;
+    border-bottom: hkey $surface 20%;
+}
+
+#category-list > ListItem:last-child,
+#item-list > ListItem:last-child {
+    border-bottom: none;
+}
+
 /* Selection emphasis — highlighted row uses $accent. The focused list
    gets a stronger tint and bold text so the user always knows which of
    the three zones the keyboard is driving. */
