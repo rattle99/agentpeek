@@ -37,6 +37,10 @@ class HookSpec:
     timeout: int | None
     referenced_script: Path | None
     script_exists: bool
+    # `source_plugin` is the qualified id of a plugin (`name@market`) when
+    # this hook was contributed by an installed plugin. None for hooks
+    # declared in a user or project settings file.
+    source_plugin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +51,7 @@ class SlashCommand:
     argument_hint: str | None
     allowed_tools: tuple[str, ...]
     body: str
+    source_plugin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,12 +66,49 @@ class PluginInstallation:
 
 
 @dataclass(frozen=True, slots=True)
+class PluginManifest:
+    description: str | None
+    version: str | None
+    author_name: str | None
+    author_email: str | None
+    homepage: str | None
+    license: str | None
+    keywords: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PluginSkill:
+    path: Path
+    name: str
+    description: str | None
+    body: str
+
+
+@dataclass(frozen=True, slots=True)
+class PluginAgent:
+    path: Path
+    name: str
+    description: str | None
+    body: str
+
+
+@dataclass(frozen=True, slots=True)
 class Plugin:
     id: str
     marketplace: str
     qualified_id: str
     enabled: bool
     installations: tuple[PluginInstallation, ...]
+    # Contents enumerated from the first installation's `install_path`.
+    # All-optional / empty-default so existing test constructors and
+    # future non-Claude sources (e.g. a CodexSource) can build Plugin
+    # without populating these.
+    manifest: PluginManifest | None = None
+    skills: tuple[PluginSkill, ...] = ()
+    agents: tuple[PluginAgent, ...] = ()
+    commands: tuple[SlashCommand, ...] = ()
+    hooks: tuple[HookSpec, ...] = ()
+    mcps: tuple["MCPServer", ...] = ()
 
 
 MemoryKind = Literal["claude_md", "memory_index", "memory_entry"]
@@ -101,6 +143,7 @@ class MCPServer:
     command: str | None
     args: tuple[str, ...]
     env: Mapping[str, str]
+    source_plugin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
