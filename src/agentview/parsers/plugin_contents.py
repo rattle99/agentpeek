@@ -49,16 +49,19 @@ def parse_plugin_contents(
 ) -> PluginContents:
     """Enumerate everything inside one plugin install_path.
 
-    `qualified_id` is stamped onto SlashCommand / HookSpec / MCPServer
-    instances via their `source_plugin` field so downstream renderers
-    can show provenance.
+    `qualified_id` is stamped onto every returned item via its
+    `source_plugin` field so downstream renderers can show provenance.
     """
     warnings: list[ScanWarning] = []
     manifest_data, manifest = _parse_manifest(install_path, warnings)
     return PluginContents(
         manifest=manifest,
-        skills=_parse_skills(install_path / "skills", warnings),
-        agents=_parse_agents(install_path / "agents", warnings),
+        skills=_parse_skills(
+            install_path / "skills", warnings, qualified_id=qualified_id
+        ),
+        agents=_parse_agents(
+            install_path / "agents", warnings, qualified_id=qualified_id
+        ),
         commands=_parse_commands(
             install_path / "commands", warnings, qualified_id=qualified_id
         ),
@@ -125,7 +128,7 @@ def _parse_manifest(
 
 
 def _parse_skills(
-    skills_dir: Path, warnings: list[ScanWarning]
+    skills_dir: Path, warnings: list[ScanWarning], *, qualified_id: str
 ) -> tuple[PluginSkill, ...]:
     if not skills_dir.is_dir():
         return ()
@@ -147,13 +150,14 @@ def _parse_skills(
                 name=_as_str(file.metadata.get("name")) or sub.name,
                 description=_as_str(file.metadata.get("description")),
                 body=file.body,
+                source_plugin=qualified_id,
             )
         )
     return tuple(results)
 
 
 def _parse_agents(
-    agents_dir: Path, warnings: list[ScanWarning]
+    agents_dir: Path, warnings: list[ScanWarning], *, qualified_id: str
 ) -> tuple[PluginAgent, ...]:
     if not agents_dir.is_dir():
         return ()
@@ -170,6 +174,7 @@ def _parse_agents(
                 name=_as_str(file.metadata.get("name")) or md.stem,
                 description=_as_str(file.metadata.get("description")),
                 body=file.body,
+                source_plugin=qualified_id,
             )
         )
     return tuple(results)

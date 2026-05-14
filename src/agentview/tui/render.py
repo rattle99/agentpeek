@@ -19,6 +19,7 @@ from agentview.models import (
     MemoryFile,
     Plugin,
     PluginManifest,
+    PluginSkill,
     ScanReport,
     ScanResult,
     ScanWarning,
@@ -31,6 +32,7 @@ CATEGORIES: tuple[tuple[str, str], ...] = (
     ("hooks", "Hooks"),
     ("commands", "Slash commands"),
     ("plugins", "Plugins"),
+    ("skills", "Skills"),
     ("memory", "Memory"),
     ("keybindings", "Keybindings"),
     ("mcp", "MCP servers"),
@@ -229,9 +231,7 @@ def item_path(payload: object, result: ScanResult) -> Path | None:  # noqa: PLR0
     referencing an inline shell command with no `referenced_script`,
     or a memory entry with no path — shouldn't happen but defensive).
     """
-    if isinstance(payload, MemoryFile):
-        return payload.path
-    if isinstance(payload, SlashCommand):
+    if isinstance(payload, MemoryFile | SlashCommand | PluginSkill):
         return payload.path
     if isinstance(payload, HookSpec):
         return payload.referenced_script
@@ -260,6 +260,7 @@ def category_count(result: ScanResult, key: str) -> int:
         "hooks": len(result.hooks),
         "commands": len(result.commands),
         "plugins": len(result.plugins),
+        "skills": sum(len(p.skills) for p in result.plugins),
         "memory": len(result.memory),
         "keybindings": (len(result.keybindings.entries) if result.keybindings else 0),
         "mcp": len(result.mcp),
@@ -340,6 +341,8 @@ def category_items(  # noqa: PLR0911
             return _commands_items(result.commands)
         case "plugins":
             return _plugins_items(result.plugins)
+        case "skills":
+            return _skills_items(result.plugins)
         case "memory":
             return _memory_items(result.memory)
         case "keybindings":
@@ -382,6 +385,8 @@ def _render_body_widgets(key: str, payload: object) -> list[Widget]:  # noqa: PL
             return _commands_detail_widgets(payload)
         case "plugins":
             return _plugins_detail_widgets(payload)
+        case "skills":
+            return _skills_detail_widgets(payload)
         case "memory":
             return _memory_detail_widgets(payload)
         case "keybindings":
@@ -755,6 +760,46 @@ def _manifest_table(m: PluginManifest) -> Table:
     if not rows:
         rows.append(("(manifest)", _muted_cell("(no fields)")))
     return _kv_table(rows)
+
+
+# --- Skills (aggregated across plugins) ---------------------------------
+
+
+def _skills_items(plugins: tuple[Plugin, ...]) -> list[tuple[Content, object]]:
+    """Flatten every plugin's `.skills` into a single ordered list,
+    each row prefixed with the contributing plugin's qualified id."""
+    items: list[tuple[Content, object]] = []
+    for p in plugins:
+        for s in p.skills:
+            label = Content.assemble(
+                (f"[plug:{p.qualified_id}] ", f"bold {COLOR_INFO}"),
+                (s.name, "bold"),
+                (" — ", COLOR_MUTED),
+                s.description or "",
+            )
+            items.append((label, s))
+    return items
+
+
+def _skills_detail_widgets(payload: object) -> list[Widget]:
+    if not isinstance(payload, PluginSkill):
+        return [Static("(no skill selected)", classes="muted")]
+    header = Content.assemble((payload.name, f"bold {COLOR_PRIMARY}"))
+    widgets: list[Widget] = [Static(header, classes="detail-header")]
+    rows: list[tuple[str, RenderableType]] = [
+        (
+            "Source plugin",
+            payload.source_plugin or _muted_cell("(unknown)"),
+        ),
+        (
+            "Description",
+            payload.description or _muted_cell("(none)"),
+        ),
+        ("Path", str(payload.path)),
+    ]
+    widgets.append(_card("Properties", Static(_kv_table(rows))))
+    widgets.append(_card("Body", Markdown(payload.body or "_(empty)_")))
+    return widgets
 
 
 # --- Memory -------------------------------------------------------------

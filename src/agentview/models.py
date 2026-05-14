@@ -82,6 +82,7 @@ class PluginSkill:
     name: str
     description: str | None
     body: str
+    source_plugin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +91,7 @@ class PluginAgent:
     name: str
     description: str | None
     body: str
+    source_plugin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
