@@ -167,3 +167,30 @@ Header {
 Footer {
     dock: bottom;
 }
+
+/* Help modal — centered card on a dimmed backdrop. */
+HelpScreen {
+    align: center middle;
+    background: $background 60%;
+}
+
+HelpScreen > #help-card {
+    width: 60;
+    height: auto;
+    max-height: 24;
+    background: $surface;
+    border: round $accent;
+    padding: 1 2;
+}
+
+HelpScreen #help-title {
+    text-style: bold;
+    color: $primary;
+    padding-bottom: 1;
+}
+
+HelpScreen #help-bindings {
+    height: auto;
+    max-height: 18;
+    background: $surface;
+}

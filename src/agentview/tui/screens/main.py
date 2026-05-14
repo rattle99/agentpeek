@@ -19,6 +19,7 @@ from agentview.tui.render import (
     scope_summary,
     sidebar_count,
 )
+from agentview.tui.screens.help import HelpScreen
 
 if TYPE_CHECKING:
     from agentview.tui.app import AgentViewApp
@@ -32,6 +33,7 @@ class MainScreen(Screen[None]):
         Binding("o", "open", "Open"),
         Binding("y", "yank", "Yank path"),
         Binding("slash", "focus_filter", "Filter"),
+        Binding("question_mark", "help", "Help"),
         Binding("escape", "clear_filter", show=False),
     ]
 
@@ -152,6 +154,18 @@ class MainScreen(Screen[None]):
         if result is None:
             return None
         return item_path(payload, result)
+
+    def action_help(self) -> None:
+        """Open a help modal listing every shown Binding."""
+        app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
+        bindings: list[tuple[str, str]] = []
+        for b in self.BINDINGS:
+            if isinstance(b, Binding) and b.show:
+                bindings.append((b.key, b.description))
+        for b in app.BINDINGS:
+            if isinstance(b, Binding) and b.show:
+                bindings.append((b.key, b.description))
+        app.push_screen(HelpScreen(tuple(bindings)))
 
     def action_focus_filter(self) -> None:
         """Show + focus the filter input."""
