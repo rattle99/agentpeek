@@ -309,7 +309,15 @@ def items_for_report(
 
     In multi-scope mode labels are prefixed with a styled `[U]` or `[P]`
     marker; in single-scope mode the bare label is used.
+
+    The "skills" category is special-cased to group by source plugin
+    rather than scope: each plugin becomes a non-selectable header row
+    (payload=None) followed by indented skill rows. The plugin name no
+    longer needs to repeat per skill, eliminating label redundancy and
+    truncation.
     """
+    if key == "skills":
+        return _skills_grouped_items(report)
     multi = report.user is not None and report.project is not None
     items: list[tuple[Content, object, str]] = []
     if report.user is not None:
@@ -320,6 +328,40 @@ def items_for_report(
         for label, payload in category_items(report.project, key):
             display = _prefix(label, "P", COLOR_ACCENT) if multi else label
             items.append((display, payload, "project"))
+    return items
+
+
+def _skills_grouped_items(
+    report: ScanReport,
+) -> list[tuple[Content, object, str]]:
+    """Aggregate skills across both scopes, grouped by source plugin.
+
+    Each plugin emits one non-selectable header row (payload = None,
+    handled by MainScreen as a divider) followed by its skills,
+    indented and without the redundant plugin id prefix.
+    """
+    items: list[tuple[Content, object, str]] = []
+    multi = report.user is not None and report.project is not None
+    for scope_name, result in (("user", report.user), ("project", report.project)):
+        if result is None:
+            continue
+        for p in result.plugins:
+            if not p.skills:
+                continue
+            scope_tag = f"  ({scope_name})" if multi else ""
+            header = Content.assemble(
+                (p.qualified_id, f"bold {COLOR_INFO}"),
+                (scope_tag, COLOR_MUTED),
+            )
+            items.append((header, None, scope_name))
+            for s in p.skills:
+                label = Content.assemble(
+                    ("  ", ""),  # 2-space indent under the group header
+                    (s.name, "bold"),
+                    (" — ", COLOR_MUTED),
+                    s.description or "",
+                )
+                items.append((label, s, scope_name))
     return items
 
 

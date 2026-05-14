@@ -79,6 +79,14 @@ Screen {
     border-bottom: none;
 }
 
+/* Group headers in the items list — bolder, accent-tinted, no
+   hover/highlight (they're disabled and non-selectable). Used by the
+   Skills category to mark each source plugin. */
+#item-list > ListItem.group-header {
+    background: $surface;
+    padding-top: 1;
+}
+
 /* Selection emphasis — highlighted row uses $accent. The focused list
    gets a stronger tint and bold text so the user always knows which of
    the three zones the keyboard is driving. */

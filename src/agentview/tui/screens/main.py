@@ -108,24 +108,42 @@ class MainScreen(Screen[None]):
         await self._rebuild_items()
 
     async def _rebuild_items(self) -> None:
-        """Rebuild the items list for the active category, honoring filter."""
+        """Rebuild the items list for the active category, honoring filter.
+
+        Items with `payload=None` are group headers (used by the Skills
+        category) — they get the .group-header class and are marked
+        disabled so they don't take focus. Filtering only matches against
+        selectable rows; headers are dropped when a filter is active.
+        """
         item_list = self.query_one("#item-list", ListView)
         items = items_for_report(self._report, self.selected_category)
         if self.filter_text:
             needle = self.filter_text.lower()
-            items = [it for it in items if needle in it[0].plain.lower()]
+            items = [
+                it
+                for it in items
+                if it[1] is not None and needle in it[0].plain.lower()
+            ]
         await item_list.clear()
-        for label, _payload, _scope in items:
-            item_list.append(ListItem(Label(label)))
+        first_selectable: int | None = None
+        for i, (label, payload, _scope) in enumerate(items):
+            list_item = ListItem(Label(label))
+            if payload is None:
+                list_item.disabled = True
+                list_item.add_class("group-header")
+            elif first_selectable is None:
+                first_selectable = i
+            item_list.append(list_item)
         title = self.query_one("#main-title", Label)
         name = next(
             (n for k, n in CATEGORIES if k == self.selected_category),
             self.selected_category,
         )
-        title.update(f"{name}  ({len(items)})")
-        if items:
-            item_list.index = 0
-            self.selected_index = 0
+        selectable_count = sum(1 for it in items if it[1] is not None)
+        title.update(f"{name}  ({selectable_count})")
+        if first_selectable is not None:
+            item_list.index = first_selectable
+            self.selected_index = first_selectable
         else:
             self.selected_index = -1
         await self._refresh_detail()
@@ -137,6 +155,12 @@ class MainScreen(Screen[None]):
         await container.remove_children()
         if 0 <= idx < len(items):
             _label, payload, scope = items[idx]
+            if payload is None:
+                # Group header — nothing to drill into.
+                await container.mount(
+                    Static("(select a skill)", classes="muted")
+                )
+                return
             widgets = render_detail_widgets(self.selected_category, payload, scope)
             if widgets:
                 await container.mount_all(widgets)
