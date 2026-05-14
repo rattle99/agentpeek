@@ -1,0 +1,10 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {"type": "command", "command": "echo before-bash"}
+      ]
+    }
+  ]
+}

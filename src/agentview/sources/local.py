@@ -17,6 +17,7 @@ from agentview.models import (
     SlashCommand,
 )
 from agentview.parsers import load_frontmatter, load_json
+from agentview.parsers.plugin_contents import parse_plugin_contents
 
 
 class LocalSource:
@@ -252,15 +253,32 @@ class LocalSource:
             pid, marketplace = (
                 qid_str.rsplit("@", 1) if "@" in qid_str else (qid_str, "")
             )
+            installations = _parse_installations(cast("list[object]", installs_obj))
+            # Enumerate contents from the first installation's directory.
+            # Plugins typically pin to one version per qualified id, so
+            # there's only one set of contents to surface.
+            contents = (
+                parse_plugin_contents(
+                    installations[0].install_path, qualified_id=qid_str
+                )
+                if installations and installations[0].install_path.is_dir()
+                else None
+            )
+            if contents is not None:
+                warnings.extend(contents.warnings)
             results.append(
                 Plugin(
                     id=pid,
                     marketplace=marketplace,
                     qualified_id=qid_str,
                     enabled=qid_str in enabled_union,
-                    installations=_parse_installations(
-                        cast("list[object]", installs_obj)
-                    ),
+                    installations=installations,
+                    manifest=contents.manifest if contents else None,
+                    skills=contents.skills if contents else (),
+                    agents=contents.agents if contents else (),
+                    commands=contents.commands if contents else (),
+                    hooks=contents.hooks if contents else (),
+                    mcps=contents.mcps if contents else (),
                 )
             )
         return tuple(results)

@@ -8,9 +8,18 @@ from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
+from textual.widgets import (
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    Static,
+)
 
-from agentview.models import ScanReport
+from agentview.models import PluginSkill, ScanReport
 from agentview.tui.render import (
     CATEGORIES,
     item_path,
@@ -20,6 +29,7 @@ from agentview.tui.render import (
     sidebar_count,
 )
 from agentview.tui.screens.help import HelpScreen
+from agentview.tui.screens.skill_detail import SkillDetailModal
 
 if TYPE_CHECKING:
     from agentview.tui.app import AgentViewApp
@@ -108,24 +118,42 @@ class MainScreen(Screen[None]):
         await self._rebuild_items()
 
     async def _rebuild_items(self) -> None:
-        """Rebuild the items list for the active category, honoring filter."""
+        """Rebuild the items list for the active category, honoring filter.
+
+        Items with `payload=None` are group headers (used by the Skills
+        category) — they get the .group-header class and are marked
+        disabled so they don't take focus. Filtering only matches against
+        selectable rows; headers are dropped when a filter is active.
+        """
         item_list = self.query_one("#item-list", ListView)
         items = items_for_report(self._report, self.selected_category)
         if self.filter_text:
             needle = self.filter_text.lower()
-            items = [it for it in items if needle in it[0].plain.lower()]
+            items = [
+                it
+                for it in items
+                if it[1] is not None and needle in it[0].plain.lower()
+            ]
         await item_list.clear()
-        for label, _payload, _scope in items:
-            item_list.append(ListItem(Label(label)))
+        first_selectable: int | None = None
+        for i, (label, payload, _scope) in enumerate(items):
+            list_item = ListItem(Label(label))
+            if payload is None:
+                list_item.disabled = True
+                list_item.add_class("group-header")
+            elif first_selectable is None:
+                first_selectable = i
+            item_list.append(list_item)
         title = self.query_one("#main-title", Label)
         name = next(
             (n for k, n in CATEGORIES if k == self.selected_category),
             self.selected_category,
         )
-        title.update(f"{name}  ({len(items)})")
-        if items:
-            item_list.index = 0
-            self.selected_index = 0
+        selectable_count = sum(1 for it in items if it[1] is not None)
+        title.update(f"{name}  ({selectable_count})")
+        if first_selectable is not None:
+            item_list.index = first_selectable
+            self.selected_index = first_selectable
         else:
             self.selected_index = -1
         await self._refresh_detail()
@@ -137,6 +165,12 @@ class MainScreen(Screen[None]):
         await container.remove_children()
         if 0 <= idx < len(items):
             _label, payload, scope = items[idx]
+            if payload is None:
+                # Group header — nothing to drill into.
+                await container.mount(
+                    Static("(select a skill)", classes="muted")
+                )
+                return
             widgets = render_detail_widgets(self.selected_category, payload, scope)
             if widgets:
                 await container.mount_all(widgets)
@@ -154,6 +188,25 @@ class MainScreen(Screen[None]):
         if result is None:
             return None
         return item_path(payload, result)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Pop SkillDetailModal when the user presses Enter on a row of
+        the plugin-detail's Skills card.
+
+        Only the Skills table (`_SkillsDataTable`) carries a
+        `plugin_skills` attribute; other plugin-detail DataTables
+        (installations, hooks, commands, mcps) leave this event a no-op.
+        """
+        table = event.data_table  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
+        skills_attr = getattr(table, "plugin_skills", None)  # pyright: ignore[reportUnknownArgumentType]
+        if not isinstance(skills_attr, tuple):
+            return
+        skills = cast("tuple[PluginSkill, ...]", skills_attr)
+        idx = event.cursor_row
+        if not 0 <= idx < len(skills):
+            return
+        app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
+        app.push_screen(SkillDetailModal(skills[idx]))
 
     def action_help(self) -> None:
         """Open a help modal listing every shown Binding."""

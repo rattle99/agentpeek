@@ -18,6 +18,8 @@ from agentview.models import (
     MCPServer,
     MemoryFile,
     Plugin,
+    PluginManifest,
+    PluginSkill,
     ScanReport,
     ScanResult,
     ScanWarning,
@@ -30,6 +32,7 @@ CATEGORIES: tuple[tuple[str, str], ...] = (
     ("hooks", "Hooks"),
     ("commands", "Slash commands"),
     ("plugins", "Plugins"),
+    ("skills", "Skills"),
     ("memory", "Memory"),
     ("keybindings", "Keybindings"),
     ("mcp", "MCP servers"),
@@ -165,6 +168,24 @@ class _PendingDataTable(DataTable[str]):
             self.add_row(*row)
 
 
+class _SkillsDataTable(_PendingDataTable):
+    """Skills table inside the plugin detail card.
+
+    Carries the `PluginSkill` instances alongside the rows so that
+    MainScreen's `on_data_table_row_selected` can resolve a row back
+    to a skill and push the SkillDetailModal.
+    """
+
+    def __init__(
+        self,
+        columns: tuple[str, ...],
+        rows: tuple[tuple[str, ...], ...],
+        skills: tuple["PluginSkill", ...],
+    ) -> None:
+        super().__init__(columns=columns, rows=rows)
+        self.plugin_skills = skills
+
+
 def _card(
     title: str, *children: Widget, severity: Severity | None = None
 ) -> Container:
@@ -228,9 +249,7 @@ def item_path(payload: object, result: ScanResult) -> Path | None:  # noqa: PLR0
     referencing an inline shell command with no `referenced_script`,
     or a memory entry with no path — shouldn't happen but defensive).
     """
-    if isinstance(payload, MemoryFile):
-        return payload.path
-    if isinstance(payload, SlashCommand):
+    if isinstance(payload, MemoryFile | SlashCommand | PluginSkill):
         return payload.path
     if isinstance(payload, HookSpec):
         return payload.referenced_script
@@ -254,14 +273,18 @@ def item_path(payload: object, result: ScanResult) -> Path | None:  # noqa: PLR0
 
 
 def category_count(result: ScanResult, key: str) -> int:
+    plugin_commands = sum(len(p.commands) for p in result.plugins)
+    plugin_hooks = sum(len(p.hooks) for p in result.plugins)
+    plugin_mcps = sum(len(p.mcps) for p in result.plugins)
     counts = {
         "settings": 1 if result.settings else 0,
-        "hooks": len(result.hooks),
-        "commands": len(result.commands),
+        "hooks": len(result.hooks) + plugin_hooks,
+        "commands": len(result.commands) + plugin_commands,
         "plugins": len(result.plugins),
+        "skills": sum(len(p.skills) for p in result.plugins),
         "memory": len(result.memory),
         "keybindings": (len(result.keybindings.entries) if result.keybindings else 0),
-        "mcp": len(result.mcp),
+        "mcp": len(result.mcp) + plugin_mcps,
         "warnings": len(result.warnings),
     }
     return counts.get(key, 0)
@@ -304,7 +327,15 @@ def items_for_report(
 
     In multi-scope mode labels are prefixed with a styled `[U]` or `[P]`
     marker; in single-scope mode the bare label is used.
+
+    The "skills" category is special-cased to group by source plugin
+    rather than scope: each plugin becomes a non-selectable header row
+    (payload=None) followed by indented skill rows. The plugin name no
+    longer needs to repeat per skill, eliminating label redundancy and
+    truncation.
     """
+    if key == "skills":
+        return _skills_grouped_items(report)
     multi = report.user is not None and report.project is not None
     items: list[tuple[Content, object, str]] = []
     if report.user is not None:
@@ -318,9 +349,58 @@ def items_for_report(
     return items
 
 
+def _skills_grouped_items(
+    report: ScanReport,
+) -> list[tuple[Content, object, str]]:
+    """Aggregate skills across both scopes, grouped by source plugin.
+
+    Each plugin emits one non-selectable header row (payload = None,
+    handled by MainScreen as a divider) followed by its skills,
+    indented and without the redundant plugin id prefix.
+    """
+    items: list[tuple[Content, object, str]] = []
+    multi = report.user is not None and report.project is not None
+    for scope_name, result in (("user", report.user), ("project", report.project)):
+        if result is None:
+            continue
+        for p in result.plugins:
+            if not p.skills:
+                continue
+            scope_tag = f"  ({scope_name})" if multi else ""
+            header = Content.assemble(
+                (p.qualified_id, f"bold {COLOR_INFO}"),
+                (scope_tag, COLOR_MUTED),
+            )
+            items.append((header, None, scope_name))
+            for s in p.skills:
+                label = Content.assemble(
+                    ("  ", ""),  # 2-space indent under the group header
+                    (s.name, "bold"),
+                    (" — ", COLOR_MUTED),
+                    s.description or "",
+                )
+                items.append((label, s, scope_name))
+    return items
+
+
 def _prefix(label: Content, marker: str, color: str) -> Content:
     return Content.assemble(
         (f"[{marker}] ", f"bold {color}"),
+        label,
+    )
+
+
+def _plug_prefix(label: Content, source_plugin: str | None) -> Content:
+    """Prepend a `[plug:<id>] ` provenance segment when source_plugin is set.
+
+    Used by the global Commands / Hooks / MCP categories to indicate
+    plugin-contributed entries. Yellow (`$warning`) to stay visually
+    distinct from `[U]` (`$primary` blue) and `[P]` (`$accent`).
+    """
+    if source_plugin is None:
+        return label
+    return Content.assemble(
+        (f"[plug:{source_plugin}] ", f"bold {COLOR_WARNING}"),
         label,
     )
 
@@ -334,17 +414,28 @@ def category_items(  # noqa: PLR0911
         case "settings":
             return _settings_items(result.settings)
         case "hooks":
-            return _hooks_items(result.hooks)
+            merged_hooks = result.hooks + tuple(
+                h for p in result.plugins for h in p.hooks
+            )
+            return _hooks_items(merged_hooks)
         case "commands":
-            return _commands_items(result.commands)
+            merged_commands = result.commands + tuple(
+                c for p in result.plugins for c in p.commands
+            )
+            return _commands_items(merged_commands)
         case "plugins":
             return _plugins_items(result.plugins)
+        case "skills":
+            return _skills_items(result.plugins)
         case "memory":
             return _memory_items(result.memory)
         case "keybindings":
             return _keybindings_items(result.keybindings)
         case "mcp":
-            return _mcp_items(result.mcp)
+            merged_mcps = result.mcp + tuple(
+                m for p in result.plugins for m in p.mcps
+            )
+            return _mcp_items(merged_mcps)
         case "warnings":
             return _warnings_items(result.warnings)
         case _:
@@ -381,6 +472,8 @@ def _render_body_widgets(key: str, payload: object) -> list[Widget]:  # noqa: PL
             return _commands_detail_widgets(payload)
         case "plugins":
             return _plugins_detail_widgets(payload)
+        case "skills":
+            return _skills_detail_widgets(payload)
         case "memory":
             return _memory_detail_widgets(payload)
         case "keybindings":
@@ -506,7 +599,7 @@ def _hooks_items(hooks: tuple[HookSpec, ...]) -> list[tuple[Content, object]]:
             (f"  [{h.matcher or '*'}]  ", COLOR_MUTED),
             preview,
         )
-        items.append((label, h))
+        items.append((_plug_prefix(label, h.source_plugin), h))
     return items
 
 
@@ -572,7 +665,7 @@ def _commands_items(commands: tuple[SlashCommand, ...]) -> list[tuple[Content, o
             )
         else:
             label = Content(f"/{c.name}").stylize("bold")
-        items.append((label, c))
+        items.append((_plug_prefix(label, c.source_plugin), c))
     return items
 
 
@@ -638,6 +731,8 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
         ("Marketplace", payload.marketplace or _muted_cell("(none)")),
     ]
     widgets.append(_card("Properties", Static(_kv_table(rows))))
+    if payload.manifest is not None:
+        widgets.append(_card("Manifest", Static(_manifest_table(payload.manifest))))
     title = f"Installations ({len(payload.installations)})"
     if not payload.installations:
         widgets.append(
@@ -664,6 +759,134 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
                 ),
             )
         )
+    # Content cards — only render when present. Each is a bounded
+    # DataTable so a 14-skill plugin doesn't take over the pane.
+    if payload.skills:
+        widgets.append(
+            _card(
+                f"Skills ({len(payload.skills)})",
+                _SkillsDataTable(
+                    columns=("name", "description"),
+                    rows=tuple(
+                        (s.name, s.description or "") for s in payload.skills
+                    ),
+                    skills=payload.skills,
+                ),
+            )
+        )
+    if payload.agents:
+        widgets.append(
+            _card(
+                f"Agents ({len(payload.agents)})",
+                _PendingDataTable(
+                    columns=("name", "description"),
+                    rows=tuple(
+                        (a.name, a.description or "") for a in payload.agents
+                    ),
+                ),
+            )
+        )
+    if payload.commands:
+        widgets.append(
+            _card(
+                f"Commands ({len(payload.commands)})",
+                _PendingDataTable(
+                    columns=("name", "description"),
+                    rows=tuple(
+                        (f"/{c.name}", c.description or "") for c in payload.commands
+                    ),
+                ),
+            )
+        )
+    if payload.hooks:
+        widgets.append(
+            _card(
+                f"Hooks ({len(payload.hooks)})",
+                _PendingDataTable(
+                    columns=("event", "matcher", "command"),
+                    rows=tuple(
+                        (
+                            h.event,
+                            h.matcher or "*",
+                            h.command[:60] + ("…" if len(h.command) > 60 else ""),
+                        )
+                        for h in payload.hooks
+                    ),
+                ),
+            )
+        )
+    if payload.mcps:
+        widgets.append(
+            _card(
+                f"MCP servers ({len(payload.mcps)})",
+                _PendingDataTable(
+                    columns=("name", "command"),
+                    rows=tuple((m.name, m.command or "?") for m in payload.mcps),
+                ),
+            )
+        )
+    return widgets
+
+
+def _manifest_table(m: PluginManifest) -> Table:
+    rows: list[tuple[str, RenderableType]] = []
+    if m.description:
+        rows.append(("Description", m.description))
+    if m.version:
+        rows.append(("Version", m.version))
+    if m.author_name:
+        author = m.author_name
+        if m.author_email:
+            author = f"{author} <{m.author_email}>"
+        rows.append(("Author", author))
+    if m.homepage:
+        rows.append(("Homepage", m.homepage))
+    if m.license:
+        rows.append(("License", m.license))
+    if m.keywords:
+        rows.append(("Keywords", ", ".join(m.keywords)))
+    if not rows:
+        rows.append(("(manifest)", _muted_cell("(no fields)")))
+    return _kv_table(rows)
+
+
+# --- Skills (aggregated across plugins) ---------------------------------
+
+
+def _skills_items(plugins: tuple[Plugin, ...]) -> list[tuple[Content, object]]:
+    """Flatten every plugin's `.skills` into a single ordered list,
+    each row prefixed with the contributing plugin's qualified id."""
+    items: list[tuple[Content, object]] = []
+    for p in plugins:
+        for s in p.skills:
+            label = Content.assemble(
+                (f"[plug:{p.qualified_id}] ", f"bold {COLOR_INFO}"),
+                (s.name, "bold"),
+                (" — ", COLOR_MUTED),
+                s.description or "",
+            )
+            items.append((label, s))
+    return items
+
+
+def _skills_detail_widgets(payload: object) -> list[Widget]:
+    if not isinstance(payload, PluginSkill):
+        return [Static("(no skill selected)", classes="muted")]
+    header = Content.assemble((payload.name, f"bold {COLOR_PRIMARY}"))
+    widgets: list[Widget] = [Static(header, classes="detail-header")]
+    rows: list[tuple[str, RenderableType]] = [
+        (
+            "Source plugin",
+            payload.source_plugin or _muted_cell("(unknown)"),
+        ),
+        (
+            "Description",
+            payload.description or _muted_cell("(none)"),
+        ),
+        ("Path", str(payload.path)),
+    ]
+    widgets.append(_card("Properties", Static(_kv_table(rows))))
+    widgets.append(_card("Body", Markdown(payload.body or "_(empty)_")))
     return widgets
 
 
@@ -763,7 +986,7 @@ def _mcp_items(mcp: tuple[MCPServer, ...]) -> list[tuple[Content, object]]:
             (m.name, "bold"),
             (f"  ({m.command or '?'})", COLOR_MUTED),
         )
-        items.append((label, m))
+        items.append((_plug_prefix(label, m.source_plugin), m))
     return items
 
 
