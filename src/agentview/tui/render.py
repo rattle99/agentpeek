@@ -216,6 +216,43 @@ def scope_path(report: ScanReport) -> str:
         return str(target)
 
 
+def item_path(payload: object, result: ScanResult) -> Path | None:  # noqa: PLR0911
+    """Resolve the on-disk path for an item, dispatched by payload type.
+
+    Used by `o` (open in $EDITOR) and `y` (yank to clipboard). Some
+    categories don't carry their own path (`_SettingsItem`,
+    `KeybindingEntry`) — for those we fall back to the parent bundle's
+    path from the active `ScanResult`.
+
+    Returns None when the item has no addressable file (e.g. a hook
+    referencing an inline shell command with no `referenced_script`,
+    or a memory entry with no path — shouldn't happen but defensive).
+    """
+    if isinstance(payload, MemoryFile):
+        return payload.path
+    if isinstance(payload, SlashCommand):
+        return payload.path
+    if isinstance(payload, HookSpec):
+        return payload.referenced_script
+    if isinstance(payload, Plugin):
+        return (
+            payload.installations[0].install_path if payload.installations else None
+        )
+    if isinstance(payload, MCPServer):
+        return payload.source_path
+    if isinstance(payload, ScanWarning):
+        return payload.path
+    if isinstance(payload, KeybindingEntry):
+        return result.keybindings.path if result.keybindings else None
+    if isinstance(payload, _SettingsItem):
+        if result.settings is None:
+            return None
+        return (
+            result.settings.local_settings_path or result.settings.user_settings_path
+        )
+    return None
+
+
 def category_count(result: ScanResult, key: str) -> int:
     counts = {
         "settings": 1 if result.settings else 0,
