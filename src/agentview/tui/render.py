@@ -18,6 +18,7 @@ from agentview.models import (
     MCPServer,
     MemoryFile,
     Plugin,
+    PluginManifest,
     ScanReport,
     ScanResult,
     ScanWarning,
@@ -638,6 +639,8 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
         ("Marketplace", payload.marketplace or _muted_cell("(none)")),
     ]
     widgets.append(_card("Properties", Static(_kv_table(rows))))
+    if payload.manifest is not None:
+        widgets.append(_card("Manifest", Static(_manifest_table(payload.manifest))))
     title = f"Installations ({len(payload.installations)})"
     if not payload.installations:
         widgets.append(
@@ -664,7 +667,94 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
                 ),
             )
         )
+    # Content cards — only render when present. Each is a bounded
+    # DataTable so a 14-skill plugin doesn't take over the pane.
+    if payload.skills:
+        widgets.append(
+            _card(
+                f"Skills ({len(payload.skills)})",
+                _PendingDataTable(
+                    columns=("name", "description"),
+                    rows=tuple(
+                        (s.name, s.description or "") for s in payload.skills
+                    ),
+                ),
+            )
+        )
+    if payload.agents:
+        widgets.append(
+            _card(
+                f"Agents ({len(payload.agents)})",
+                _PendingDataTable(
+                    columns=("name", "description"),
+                    rows=tuple(
+                        (a.name, a.description or "") for a in payload.agents
+                    ),
+                ),
+            )
+        )
+    if payload.commands:
+        widgets.append(
+            _card(
+                f"Commands ({len(payload.commands)})",
+                _PendingDataTable(
+                    columns=("name", "description"),
+                    rows=tuple(
+                        (f"/{c.name}", c.description or "") for c in payload.commands
+                    ),
+                ),
+            )
+        )
+    if payload.hooks:
+        widgets.append(
+            _card(
+                f"Hooks ({len(payload.hooks)})",
+                _PendingDataTable(
+                    columns=("event", "matcher", "command"),
+                    rows=tuple(
+                        (
+                            h.event,
+                            h.matcher or "*",
+                            h.command[:60] + ("…" if len(h.command) > 60 else ""),
+                        )
+                        for h in payload.hooks
+                    ),
+                ),
+            )
+        )
+    if payload.mcps:
+        widgets.append(
+            _card(
+                f"MCP servers ({len(payload.mcps)})",
+                _PendingDataTable(
+                    columns=("name", "command"),
+                    rows=tuple((m.name, m.command or "?") for m in payload.mcps),
+                ),
+            )
+        )
     return widgets
+
+
+def _manifest_table(m: PluginManifest) -> Table:
+    rows: list[tuple[str, RenderableType]] = []
+    if m.description:
+        rows.append(("Description", m.description))
+    if m.version:
+        rows.append(("Version", m.version))
+    if m.author_name:
+        author = m.author_name
+        if m.author_email:
+            author = f"{author} <{m.author_email}>"
+        rows.append(("Author", author))
+    if m.homepage:
+        rows.append(("Homepage", m.homepage))
+    if m.license:
+        rows.append(("License", m.license))
+    if m.keywords:
+        rows.append(("Keywords", ", ".join(m.keywords)))
+    if not rows:
+        rows.append(("(manifest)", _muted_cell("(no fields)")))
+    return _kv_table(rows)
 
 
 # --- Memory -------------------------------------------------------------
