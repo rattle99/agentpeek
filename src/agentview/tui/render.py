@@ -255,15 +255,18 @@ def item_path(payload: object, result: ScanResult) -> Path | None:  # noqa: PLR0
 
 
 def category_count(result: ScanResult, key: str) -> int:
+    plugin_commands = sum(len(p.commands) for p in result.plugins)
+    plugin_hooks = sum(len(p.hooks) for p in result.plugins)
+    plugin_mcps = sum(len(p.mcps) for p in result.plugins)
     counts = {
         "settings": 1 if result.settings else 0,
-        "hooks": len(result.hooks),
-        "commands": len(result.commands),
+        "hooks": len(result.hooks) + plugin_hooks,
+        "commands": len(result.commands) + plugin_commands,
         "plugins": len(result.plugins),
         "skills": sum(len(p.skills) for p in result.plugins),
         "memory": len(result.memory),
         "keybindings": (len(result.keybindings.entries) if result.keybindings else 0),
-        "mcp": len(result.mcp),
+        "mcp": len(result.mcp) + plugin_mcps,
         "warnings": len(result.warnings),
     }
     return counts.get(key, 0)
@@ -327,6 +330,21 @@ def _prefix(label: Content, marker: str, color: str) -> Content:
     )
 
 
+def _plug_prefix(label: Content, source_plugin: str | None) -> Content:
+    """Prepend a `[plug:<id>] ` provenance segment when source_plugin is set.
+
+    Used by the global Commands / Hooks / MCP categories to indicate
+    plugin-contributed entries. Yellow (`$warning`) to stay visually
+    distinct from `[U]` (`$primary` blue) and `[P]` (`$accent`).
+    """
+    if source_plugin is None:
+        return label
+    return Content.assemble(
+        (f"[plug:{source_plugin}] ", f"bold {COLOR_WARNING}"),
+        label,
+    )
+
+
 def category_items(  # noqa: PLR0911
     result: ScanResult, key: str
 ) -> list[tuple[Content, object]]:
@@ -336,9 +354,15 @@ def category_items(  # noqa: PLR0911
         case "settings":
             return _settings_items(result.settings)
         case "hooks":
-            return _hooks_items(result.hooks)
+            merged_hooks = result.hooks + tuple(
+                h for p in result.plugins for h in p.hooks
+            )
+            return _hooks_items(merged_hooks)
         case "commands":
-            return _commands_items(result.commands)
+            merged_commands = result.commands + tuple(
+                c for p in result.plugins for c in p.commands
+            )
+            return _commands_items(merged_commands)
         case "plugins":
             return _plugins_items(result.plugins)
         case "skills":
@@ -348,7 +372,10 @@ def category_items(  # noqa: PLR0911
         case "keybindings":
             return _keybindings_items(result.keybindings)
         case "mcp":
-            return _mcp_items(result.mcp)
+            merged_mcps = result.mcp + tuple(
+                m for p in result.plugins for m in p.mcps
+            )
+            return _mcp_items(merged_mcps)
         case "warnings":
             return _warnings_items(result.warnings)
         case _:
@@ -512,7 +539,7 @@ def _hooks_items(hooks: tuple[HookSpec, ...]) -> list[tuple[Content, object]]:
             (f"  [{h.matcher or '*'}]  ", COLOR_MUTED),
             preview,
         )
-        items.append((label, h))
+        items.append((_plug_prefix(label, h.source_plugin), h))
     return items
 
 
@@ -578,7 +605,7 @@ def _commands_items(commands: tuple[SlashCommand, ...]) -> list[tuple[Content, o
             )
         else:
             label = Content(f"/{c.name}").stylize("bold")
-        items.append((label, c))
+        items.append((_plug_prefix(label, c.source_plugin), c))
     return items
 
 
@@ -898,7 +925,7 @@ def _mcp_items(mcp: tuple[MCPServer, ...]) -> list[tuple[Content, object]]:
             (m.name, "bold"),
             (f"  ({m.command or '?'})", COLOR_MUTED),
         )
-        items.append((label, m))
+        items.append((_plug_prefix(label, m.source_plugin), m))
     return items
 
 
