@@ -202,3 +202,36 @@ HelpScreen #help-bindings {
     max-height: 18;
     background: $surface;
 }
+
+/* Skill detail modal — popped when Enter is pressed on a row of the
+   plugin-detail Skills card. Larger than HelpScreen because it shows
+   the full SKILL.md body. */
+SkillDetailModal {
+    align: center middle;
+    background: $background 60%;
+}
+
+SkillDetailModal > #skill-modal-card {
+    width: 80%;
+    height: 80%;
+    background: $surface;
+    border: round $accent;
+    padding: 1 2;
+}
+
+SkillDetailModal #skill-modal-title {
+    text-style: bold;
+}
+
+SkillDetailModal #skill-modal-source {
+    padding-bottom: 1;
+}
+
+SkillDetailModal #skill-modal-desc {
+    padding-bottom: 1;
+}
+
+SkillDetailModal #skill-modal-body {
+    height: 1fr;
+    background: $surface;
+}

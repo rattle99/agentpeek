@@ -168,6 +168,24 @@ class _PendingDataTable(DataTable[str]):
             self.add_row(*row)
 
 
+class _SkillsDataTable(_PendingDataTable):
+    """Skills table inside the plugin detail card.
+
+    Carries the `PluginSkill` instances alongside the rows so that
+    MainScreen's `on_data_table_row_selected` can resolve a row back
+    to a skill and push the SkillDetailModal.
+    """
+
+    def __init__(
+        self,
+        columns: tuple[str, ...],
+        rows: tuple[tuple[str, ...], ...],
+        skills: tuple["PluginSkill", ...],
+    ) -> None:
+        super().__init__(columns=columns, rows=rows)
+        self.plugin_skills = skills
+
+
 def _card(
     title: str, *children: Widget, severity: Severity | None = None
 ) -> Container:
@@ -747,11 +765,12 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
         widgets.append(
             _card(
                 f"Skills ({len(payload.skills)})",
-                _PendingDataTable(
+                _SkillsDataTable(
                     columns=("name", "description"),
                     rows=tuple(
                         (s.name, s.description or "") for s in payload.skills
                     ),
+                    skills=payload.skills,
                 ),
             )
         )

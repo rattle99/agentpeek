@@ -8,9 +8,18 @@ from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
+from textual.widgets import (
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    Static,
+)
 
-from agentview.models import ScanReport
+from agentview.models import PluginSkill, ScanReport
 from agentview.tui.render import (
     CATEGORIES,
     item_path,
@@ -20,6 +29,7 @@ from agentview.tui.render import (
     sidebar_count,
 )
 from agentview.tui.screens.help import HelpScreen
+from agentview.tui.screens.skill_detail import SkillDetailModal
 
 if TYPE_CHECKING:
     from agentview.tui.app import AgentViewApp
@@ -178,6 +188,25 @@ class MainScreen(Screen[None]):
         if result is None:
             return None
         return item_path(payload, result)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Pop SkillDetailModal when the user presses Enter on a row of
+        the plugin-detail's Skills card.
+
+        Only the Skills table (`_SkillsDataTable`) carries a
+        `plugin_skills` attribute; other plugin-detail DataTables
+        (installations, hooks, commands, mcps) leave this event a no-op.
+        """
+        table = event.data_table  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
+        skills_attr = getattr(table, "plugin_skills", None)  # pyright: ignore[reportUnknownArgumentType]
+        if not isinstance(skills_attr, tuple):
+            return
+        skills = cast("tuple[PluginSkill, ...]", skills_attr)
+        idx = event.cursor_row
+        if not 0 <= idx < len(skills):
+            return
+        app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
+        app.push_screen(SkillDetailModal(skills[idx]))
 
     def action_help(self) -> None:
         """Open a help modal listing every shown Binding."""
