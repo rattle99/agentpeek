@@ -4,10 +4,10 @@ from typing import ClassVar
 from textual.app import App
 from textual.binding import Binding, BindingType
 
-from agentview.models import ScanReport
-from agentview.scanner import scan
-from agentview.tui.render import scope_path, scope_summary
-from agentview.tui.screens.main import MainScreen
+from agentpeek.models import ScanReport
+from agentpeek.scanner import scan
+from agentpeek.tui.render import scope_path, scope_summary
+from agentpeek.tui.screens.main import MainScreen
 
 
 class AgentViewApp(App[None]):
@@ -16,7 +16,7 @@ class AgentViewApp(App[None]):
         Binding("q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit", show=False),
     ]
-    TITLE = "agentview"
+    TITLE = "agentpeek"
 
     def __init__(self, *, scan_root: Path | None, source_name: str | None) -> None:
         super().__init__()

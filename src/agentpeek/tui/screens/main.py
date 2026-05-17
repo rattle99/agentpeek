@@ -19,8 +19,8 @@ from textual.widgets import (
     Static,
 )
 
-from agentview.models import PluginSkill, ScanReport
-from agentview.tui.render import (
+from agentpeek.models import PluginSkill, ScanReport
+from agentpeek.tui.render import (
     CATEGORIES,
     item_path,
     items_for_report,
@@ -28,11 +28,11 @@ from agentview.tui.render import (
     scope_summary,
     sidebar_count,
 )
-from agentview.tui.screens.help import HelpScreen
-from agentview.tui.screens.skill_detail import SkillDetailModal
+from agentpeek.tui.screens.help import HelpScreen
+from agentpeek.tui.screens.skill_detail import SkillDetailModal
 
 if TYPE_CHECKING:
-    from agentview.tui.app import AgentViewApp
+    from agentpeek.tui.app import AgentViewApp
 
 
 class MainScreen(Screen[None]):

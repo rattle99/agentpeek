@@ -1,8 +1,8 @@
 import dataclasses
 from pathlib import Path
 
-from agentview.health import run_cross_scope_checks
-from agentview.models import (
+from agentpeek.health import run_cross_scope_checks
+from agentpeek.models import (
     MemoryFile,
     Plugin,
     PluginInstallation,
@@ -10,7 +10,7 @@ from agentview.models import (
     ScanResult,
     SlashCommand,
 )
-from agentview.scanner import find_project_root, redistribute_plugins, scan
+from agentpeek.scanner import find_project_root, redistribute_plugins, scan
 
 
 def test_scan_local_source(sample_claude_root: Path) -> None:

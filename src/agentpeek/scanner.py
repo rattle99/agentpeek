@@ -2,17 +2,17 @@ import dataclasses
 from pathlib import Path
 from typing import cast
 
-from agentview.health import run_cross_scope_checks, run_health_checks
-from agentview.models import (
+from agentpeek.health import run_cross_scope_checks, run_health_checks
+from agentpeek.models import (
     Plugin,
     PluginInstallation,
     ScanReport,
     ScanResult,
     ScanWarning,
 )
-from agentview.parsers import load_json
-from agentview.sources.base import Source
-from agentview.sources.local import LocalSource
+from agentpeek.parsers import load_json
+from agentpeek.sources.base import Source
+from agentpeek.sources.local import LocalSource
 
 ALL_SOURCES: tuple[Source, ...] = (LocalSource(),)
 USER_CLAUDE_DIR = Path.home() / ".claude"
@@ -23,7 +23,7 @@ def find_project_root(start: Path) -> Path | None:
 
     Stopping at $HOME is deliberate: it prevents `$HOME/.claude/` (the
     user-level config) from being misidentified as a project-level root when
-    agentview is run from anywhere inside the home directory.
+    agentpeek is run from anywhere inside the home directory.
     """
     home = Path.home().resolve()
     try:
@@ -79,7 +79,7 @@ def redistribute_plugins(report: ScanReport) -> ScanReport:
 
     Plugins live in the user-level registry (`~/.claude/plugins/installed_plugins.json`)
     even when their installations are scoped to a particular project. When
-    agentview discovers a project root, those installations belong logically
+    agentpeek discovers a project root, those installations belong logically
     in the project scope.
     """
     if report.user is None or report.project_root is None or report.project is None:

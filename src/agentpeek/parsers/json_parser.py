@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from agentview.models import ScanWarning
+from agentpeek.models import ScanWarning
 
 
 def load_json(path: Path, *, category: str) -> tuple[object | None, ScanWarning | None]:

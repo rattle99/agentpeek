@@ -2,7 +2,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import ClassVar, cast
 
-from agentview.models import (
+from agentpeek.models import (
     HookSpec,
     KeybindingEntry,
     KeybindingsBundle,
@@ -16,8 +16,8 @@ from agentview.models import (
     SettingsBundle,
     SlashCommand,
 )
-from agentview.parsers import load_frontmatter, load_json
-from agentview.parsers.plugin_contents import parse_plugin_contents
+from agentpeek.parsers import load_frontmatter, load_json
+from agentpeek.parsers.plugin_contents import parse_plugin_contents
 
 
 class LocalSource:

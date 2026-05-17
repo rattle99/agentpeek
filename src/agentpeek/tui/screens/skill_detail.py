@@ -7,7 +7,7 @@ from textual.content import Content
 from textual.screen import ModalScreen
 from textual.widgets import Markdown, Static
 
-from agentview.models import PluginSkill
+from agentpeek.models import PluginSkill
 
 
 class SkillDetailModal(ModalScreen[None]):

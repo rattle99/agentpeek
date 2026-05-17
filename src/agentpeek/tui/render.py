@@ -11,7 +11,7 @@ from textual.content import Content
 from textual.widget import Widget
 from textual.widgets import DataTable, Markdown, Static
 
-from agentview.models import (
+from agentpeek.models import (
     HookSpec,
     KeybindingEntry,
     KeybindingsBundle,

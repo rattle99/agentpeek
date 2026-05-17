@@ -3,25 +3,25 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentview"
-version = "0.1.0"
+name = "agentpeek"
+version = "0.9.0"
 description = "TUI inspector for agent CLI configuration directories like ~/.claude/."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "GPL-3.0-or-later"
+license = "GPL-3.0-only"
 authors = [{ name = "rattle99", email = "24495512+rattle99@users.noreply.github.com" }]
 keywords = ["claude", "claude-code", "agent-cli", "tui", "textual", "config", "inspector"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
-    "Operating System :: POSIX",
+    "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development",
     "Topic :: Terminals",
     "Typing :: Typed",
@@ -32,21 +32,21 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rattle99/agentview"
-Repository = "https://github.com/rattle99/agentview"
-Issues = "https://github.com/rattle99/agentview/issues"
+Homepage = "https://github.com/rattle99/agentpeek"
+Repository = "https://github.com/rattle99/agentpeek"
+Issues = "https://github.com/rattle99/agentpeek/issues"
 
 [project.scripts]
-agentview = "agentview.cli:main"
+agentpeek = "agentpeek.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agentview"]
+packages = ["src/agentpeek"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/agentview", "README.md", "LICENSE", "pyproject.toml"]
+include = ["src/agentpeek", "README.md", "LICENSE", "pyproject.toml"]
 
 [tool.ruff]
 target-version = "py311"

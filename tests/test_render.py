@@ -1,7 +1,7 @@
 import dataclasses
 from pathlib import Path
 
-from agentview.models import (
+from agentpeek.models import (
     HookSpec,
     KeybindingEntry,
     KeybindingsBundle,
@@ -14,7 +14,7 @@ from agentview.models import (
     ScanWarning,
     SlashCommand,
 )
-from agentview.tui.render import (
+from agentpeek.tui.render import (
     COLOR_MUTED,
     COLOR_WARNING,
     item_path,

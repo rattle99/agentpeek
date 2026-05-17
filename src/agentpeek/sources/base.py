@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from agentview.models import ScanResult
+from agentpeek.models import ScanResult
 
 
 @runtime_checkable

@@ -6,7 +6,7 @@ from typing import cast
 import frontmatter
 import yaml
 
-from agentview.models import ScanWarning
+from agentpeek.models import ScanWarning
 
 
 @dataclass(frozen=True, slots=True)

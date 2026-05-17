@@ -1,17 +1,17 @@
-# agentview
+# agentpeek
 
 A TUI inspector for agent CLI configuration directories. v0.1.0 surfaces a one-screen overview of your Claude Code (`~/.claude/`) install: settings, hooks, slash commands, plugins, memory files, keybindings, MCP servers, and any parse warnings encountered during the scan.
 
 ## Install
 
-    pipx install agentview
+    pipx install agentpeek
 
 ## Run
 
-    agentview                      # scan ~/.claude
-    agentview --root /path/to/dir  # scan a specific directory
-    agentview --version
-    agentview --help
+    agentpeek                      # scan ~/.claude
+    agentpeek --root /path/to/dir  # scan a specific directory
+    agentpeek --version
+    agentpeek --help
 
 ## Status
 

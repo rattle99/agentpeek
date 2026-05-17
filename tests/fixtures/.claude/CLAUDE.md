@@ -1,6 +1,6 @@
 # Memory
 
-This is a sample memory file used by the agentview test fixtures. It contains
+This is a sample memory file used by the agentpeek test fixtures. It contains
 plain markdown content with no YAML frontmatter, mirroring the typical shape of
 a user-level CLAUDE.md.
 

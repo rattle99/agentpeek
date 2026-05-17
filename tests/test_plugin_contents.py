@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agentview.parsers.plugin_contents import parse_plugin_contents
+from agentpeek.parsers.plugin_contents import parse_plugin_contents
 
 FIXTURE = Path(__file__).parent / "fixtures" / "plugins" / "sample-plugin"
 

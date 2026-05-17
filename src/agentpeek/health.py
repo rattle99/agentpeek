@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from agentview.models import ScanReport, ScanResult, ScanWarning
+from agentpeek.models import ScanReport, ScanResult, ScanWarning
 
 
 def run_health_checks(result: ScanResult) -> list[ScanWarning]:

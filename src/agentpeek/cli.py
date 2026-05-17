@@ -2,18 +2,18 @@ import argparse
 import importlib.metadata
 from pathlib import Path
 
-from agentview.logging_setup import configure_logging
+from agentpeek.logging_setup import configure_logging
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="agentview",
+        prog="agentpeek",
         description="TUI inspector for agent CLI configuration directories.",
     )
     parser.add_argument(
         "--version",
         action="version",
-        version=f"agentview {importlib.metadata.version('agentview')}",
+        version=f"agentpeek {importlib.metadata.version('agentpeek')}",
     )
     parser.add_argument(
         "--root",
@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Defer Textual import so --version and --help are fast and don't drag the
     # TUI into module-load time when only the CLI surface is exercised.
-    from agentview.tui.app import AgentViewApp  # noqa: PLC0415
+    from agentpeek.tui.app import AgentViewApp  # noqa: PLC0415
 
     AgentViewApp(scan_root=args.root, source_name=args.source).run()
     return 0

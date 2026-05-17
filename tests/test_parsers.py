@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agentview.parsers import load_frontmatter, load_json
+from agentpeek.parsers import load_frontmatter, load_json
 
 
 def test_load_json_broken(sample_claude_root: Path) -> None:

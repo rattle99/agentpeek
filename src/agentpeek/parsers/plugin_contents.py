@@ -21,7 +21,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import cast
 
-from agentview.models import (
+from agentpeek.models import (
     HookSpec,
     MCPServer,
     PluginAgent,
@@ -30,7 +30,7 @@ from agentview.models import (
     ScanWarning,
     SlashCommand,
 )
-from agentview.parsers import load_frontmatter, load_json
+from agentpeek.parsers import load_frontmatter, load_json
 
 
 @dataclass(frozen=True, slots=True)

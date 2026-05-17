@@ -1,6 +1,8 @@
+from importlib.metadata import version
+
 import pytest
 
-from agentview.cli import main
+from agentpeek.cli import main
 
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -8,7 +10,7 @@ def test_version(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--version"])
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
-    assert "0.1.0" in captured.out
+    assert version("agentpeek") in captured.out
 
 
 def test_help(capsys: pytest.CaptureFixture[str]) -> None:
@@ -16,4 +18,4 @@ def test_help(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--help"])
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
-    assert "usage: agentview" in captured.out
+    assert "usage: agentpeek" in captured.out
