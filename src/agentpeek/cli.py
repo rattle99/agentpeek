@@ -21,11 +21,9 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Config root to scan. Default: ~/.claude.",
     )
-    parser.add_argument(
-        "--source",
-        default=None,
-        help="Force a source by name. Default: auto-detect.",
-    )
+    # Reserved for v2.x when additional Source implementations (Codex,
+    # Gemini, Cursor) land. Hidden today because only "local" exists.
+    parser.add_argument("--source", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--log-level",
         default="WARNING",

@@ -266,6 +266,7 @@ class MainScreen(Screen[None]):
 
     async def action_refresh(self) -> None:
         """Re-scan disk and rebuild every list/count/detail in place."""
+        prev_label = self._current_item_label()
         app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
         self._report = app.rescan()
         for item in self.query("#category-list > ListItem").results():
@@ -277,4 +278,22 @@ class MainScreen(Screen[None]):
         self.query_one("#sidebar > .zone-title", Label).update(self._sidebar_title())
         # Rebuild items + detail for the active category.
         await self.watch_selected_category(self.selected_category)
+        if prev_label is not None:
+            current = self._current_item_label()
+            if current != prev_label:
+                self.notify(
+                    f"Selection reset (was: {prev_label})",
+                    severity="warning",
+                    timeout=3,
+                )
+                return
         self.notify("Rescanned", timeout=2)
+
+    def _current_item_label(self) -> str | None:
+        items = items_for_report(self._report, self.selected_category)
+        idx = self.selected_index
+        if 0 <= idx < len(items):
+            label, payload, _scope = items[idx]
+            if payload is not None:
+                return label.plain
+        return None

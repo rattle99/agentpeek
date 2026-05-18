@@ -1,3 +1,7 @@
+import functools
+import json
+import re
+import shlex
 from pathlib import Path
 from types import MappingProxyType
 from typing import ClassVar, cast
@@ -154,9 +158,9 @@ class LocalSource:
                     cmd = _as_str(inner_d.get("command"))
                     if cmd is None:
                         continue
-                    referenced = _resolve_script(cmd, root)
+                    referenced, dynamic = _resolve_script(cmd, root)
                     exists = referenced is not None and referenced.exists()
-                    if referenced is not None and not exists:
+                    if referenced is not None and not exists and not dynamic:
                         warnings.append(
                             ScanWarning(
                                 path=referenced,
@@ -173,6 +177,7 @@ class LocalSource:
                             timeout=_as_int(inner_d.get("timeout")),
                             referenced_script=referenced,
                             script_exists=exists,
+                            referenced_dynamic=dynamic,
                         )
                     )
         return tuple(hooks)
@@ -303,7 +308,7 @@ class LocalSource:
                 mem_dir = proj_dir / "memory"
                 if not mem_dir.is_dir():
                     continue
-                label = _decode_project_label(proj_dir.name)
+                label = _resolve_project_label(proj_dir)
                 for md_path in sorted(mem_dir.glob("*.md")):
                     kind: MemoryKind = (
                         "memory_index"
@@ -423,13 +428,57 @@ def _as_str_tuple(v: object) -> tuple[str, ...]:
     return ()
 
 
-def _resolve_script(command: str, root: Path) -> Path | None:
-    for tok in command.split():
-        if "~/.claude" in tok:
-            return Path(tok.replace("~/.claude", str(root)))
-        if str(root) in tok:
-            return Path(tok)
-    return None
+_DEFAULT_VAR_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}")
+_BARE_VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
+
+
+def _resolve_script(command: str, root: Path) -> tuple[Path | None, bool]:
+    """Best-effort extraction of the script path from a hook command.
+
+    Returns `(path, is_dynamic)`. Handles `~/.claude`, `$HOME`,
+    `${VAR:-default}`, `${CLAUDE_PROJECT_DIR}`-style env vars, absolute
+    paths under `root`, and quoted tokens. When a token contains
+    `.claude/<tail>`, the tail is anchored against `root` — true for
+    the common pattern where hook commands reference files inside the
+    same `.claude/` they live in.
+
+    `is_dynamic` flags that at least one unresolved env-var reference
+    was seen; diagnostic only, doesn't affect orphan-hook logic since
+    the `.claude/<tail>` anchoring already resolves the typical case.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+
+    is_dynamic = False
+    root_str = str(root)
+    home_str = str(Path.home())
+
+    for tok in tokens:
+        if _DEFAULT_VAR_RE.search(tok):
+            is_dynamic = True
+        normalized = _DEFAULT_VAR_RE.sub(lambda m: m.group(1), tok)
+        normalized = normalized.replace("${HOME}", home_str).replace(
+            "$HOME", home_str
+        )
+        if _BARE_VAR_RE.search(normalized):
+            is_dynamic = True
+            normalized = _BARE_VAR_RE.sub("", normalized)
+        if normalized.startswith("~/"):
+            normalized = home_str + normalized[1:]
+        if normalized.startswith(root_str):
+            return Path(normalized), is_dynamic
+        idx = normalized.find(".claude/")
+        if idx >= 0:
+            tail = normalized[idx + len(".claude/") :]
+            if tail:
+                return root / tail, is_dynamic
+        if root_str in normalized:
+            j = normalized.find(root_str)
+            return Path(normalized[j:]), is_dynamic
+
+    return None, is_dynamic
 
 
 def _safe_load_json_dict(
@@ -498,11 +547,34 @@ def _read_memory_file(
     )
 
 
-def _decode_project_label(encoded: str) -> str:
-    # Claude Code encodes project paths by replacing `/` with `-`. Decoding is
-    # best-effort: a project path that originally contained `-` will be
-    # garbled, but for the typical case it round-trips fine.
-    return encoded.replace("-", "/")
+@functools.lru_cache(maxsize=512)
+def _resolve_project_label(proj_dir: Path) -> str:
+    """Return the original cwd for a Claude Code project directory.
+
+    Claude Code's encoding of project paths into the directory name
+    collapses both `/` and `.` to `-` and is unrecoverable for paths
+    containing a literal `-`. The authoritative source is the `cwd`
+    field embedded in any `.jsonl` session log under the project dir.
+    Falls back to the raw directory name when no jsonl yields a cwd.
+    """
+    for jsonl in sorted(proj_dir.glob("*.jsonl")):
+        try:
+            with jsonl.open(encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except (ValueError, json.JSONDecodeError):
+                        continue
+                    if isinstance(rec, dict):
+                        cwd = cast("dict[str, object]", rec).get("cwd")
+                        if isinstance(cwd, str) and cwd:
+                            return cwd
+        except OSError:
+            continue
+        # First jsonl exhausted without a cwd — subsequent logs unlikely
+        # to differ; bail to keep the lookup O(1) per project dir.
+        break
+    return proj_dir.name
 
 
 def _parse_installations(

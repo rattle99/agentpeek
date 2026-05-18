@@ -163,6 +163,10 @@ class _PendingDataTable(DataTable[str]):
         self._pending_rows = rows
 
     def on_mount(self) -> None:
+        # Guard against double-mount (e.g. detail container re-attached)
+        # which would otherwise duplicate columns.
+        if self.columns:
+            return
         self.add_columns(*self._pending_columns)
         for row in self._pending_rows:
             self.add_row(*row)

@@ -72,6 +72,30 @@ def _check_plugin_state(result: ScanResult) -> list[ScanWarning]:
                     ),
                 )
             )
+        if not plugin.enabled and plugin.installations:
+            issues.append(
+                ScanWarning(
+                    path=None,
+                    category="plugin_state",
+                    reason=(
+                        f"plugin {plugin.qualified_id} has installations "
+                        "on disk but is not enabled"
+                    ),
+                )
+            )
+        for inst in plugin.installations:
+            if not inst.install_path.is_dir():
+                issues.append(
+                    ScanWarning(
+                        path=inst.install_path,
+                        category="plugin_state",
+                        reason=(
+                            f"plugin {plugin.qualified_id} registry entry "
+                            f"points at missing install path: "
+                            f"{inst.install_path}"
+                        ),
+                    )
+                )
     return issues
 
 

@@ -59,7 +59,10 @@ def test_scan_local_source(sample_claude_root: Path) -> None:
     assert warning_categories.count("commands") == 1
     assert warning_categories.count("conflicting_binding") == 1
     assert warning_categories.count("orphan_hook") == 1
-    assert warning_categories.count("plugin_state") == 1
+    # Fixture has alpha@market-one + beta@market-two (2 installs) with
+    # missing install paths (3 warnings) plus broken@market-x with no
+    # installations (1 warning) → 4 plugin_state warnings.
+    assert warning_categories.count("plugin_state") == 4
 
 
 def test_scan_unknown_source(sample_claude_root: Path) -> None:

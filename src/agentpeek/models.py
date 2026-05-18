@@ -37,6 +37,10 @@ class HookSpec:
     timeout: int | None
     referenced_script: Path | None
     script_exists: bool
+    # True when the command references a runtime env var (e.g.
+    # ${CLAUDE_PROJECT_DIR}) — diagnostic flag, the resolver still tries
+    # to anchor any `.claude/<tail>` reference against the scan root.
+    referenced_dynamic: bool = False
     # `source_plugin` is the qualified id of a plugin (`name@market`) when
     # this hook was contributed by an installed plugin. None for hooks
     # declared in a user or project settings file.
@@ -189,7 +193,6 @@ class ScanReport:
     user: ScanResult | None
     project: ScanResult | None
     project_root: Path | None
-    cross_scope_warnings: tuple[ScanWarning, ...] = ()
 
     @property
     def primary(self) -> ScanResult | None:

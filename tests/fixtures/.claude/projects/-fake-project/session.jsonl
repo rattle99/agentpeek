@@ -1,0 +1,2 @@
+{"type":"permission-mode","permissionMode":"default","sessionId":"00000000-0000-0000-0000-000000000000"}
+{"type":"user","cwd":"/fake/project","message":{"role":"user","content":"hello"}}
