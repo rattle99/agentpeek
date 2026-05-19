@@ -5,6 +5,13 @@ from pathlib import Path
 from agentpeek.logging_setup import configure_logging
 
 
+def _existing_dir(value: str) -> Path:
+    p = Path(value)
+    if not p.is_dir():
+        raise argparse.ArgumentTypeError(f"{value!r} is not a directory")
+    return p
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agentpeek",
@@ -17,13 +24,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--root",
-        type=Path,
+        type=_existing_dir,
         default=None,
         help="Config root to scan. Default: ~/.claude.",
     )
     # Reserved for v2.x when additional Source implementations (Codex,
     # Gemini, Cursor) land. Hidden today because only "local" exists.
-    parser.add_argument("--source", default=None, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--source", default=None, choices=["local"], help=argparse.SUPPRESS
+    )
     parser.add_argument(
         "--log-level",
         default="WARNING",

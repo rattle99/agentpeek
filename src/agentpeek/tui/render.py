@@ -91,6 +91,25 @@ def warning_severity(category: str) -> Severity:
     return _SEVERITY_BY_CATEGORY.get(category, "warning")
 
 
+# Markdown rendering cap. Large bodies (10 MB transcript dumps,
+# accidental paste of a log) can stall Textual's Markdown widget. We
+# show the leading slice and a marker; the full file is still on disk
+# and `o` opens it in $EDITOR.
+_BODY_PREVIEW_LIMIT = 256_000
+
+
+def _bounded_markdown(body: str) -> Markdown:
+    if not body:
+        return Markdown("_(empty)_")
+    if len(body) <= _BODY_PREVIEW_LIMIT:
+        return Markdown(body)
+    overflow = len(body) - _BODY_PREVIEW_LIMIT
+    return Markdown(
+        body[:_BODY_PREVIEW_LIMIT]
+        + f"\n\n_(truncated — {overflow} more bytes; press `o` to open)_"
+    )
+
+
 def redact(value: str) -> str:
     """Mask the middle of a potentially-secret string.
 
@@ -164,11 +183,14 @@ class _PendingDataTable(DataTable[str]):
         self._pending_rows = rows
 
     def on_mount(self) -> None:
-        # Guard against double-mount (e.g. detail container re-attached)
-        # which would otherwise duplicate columns.
+        # On a fresh mount we add both columns and rows. On remount (e.g.
+        # after a rescan re-attaches the detail container), the columns
+        # are still around but the rows may be stale — wipe them and
+        # re-add so the table reflects the latest payload.
         if self.columns:
-            return
-        self.add_columns(*self._pending_columns)
+            self.clear()
+        else:
+            self.add_columns(*self._pending_columns)
         for row in self._pending_rows:
             self.add_row(*row)
 
@@ -733,7 +755,7 @@ def _commands_detail_widgets(payload: object) -> list[Widget]:
         ("Allowed tools", tools),
     ]
     widgets.append(_card("Properties", Static(_kv_table(rows))))
-    widgets.append(_card("Body", Markdown(payload.body or "_(empty)_")))
+    widgets.append(_card("Body", _bounded_markdown(payload.body)))
     return widgets
 
 
@@ -929,7 +951,7 @@ def _skills_detail_widgets(payload: object) -> list[Widget]:
         ("Path", str(payload.path)),
     ]
     widgets.append(_card("Properties", Static(_kv_table(rows))))
-    widgets.append(_card("Body", Markdown(payload.body or "_(empty)_")))
+    widgets.append(_card("Body", _bounded_markdown(payload.body)))
     return widgets
 
 
@@ -984,7 +1006,7 @@ def _memory_detail_widgets(payload: object) -> list[Widget]:
         ("Size", f"{len(payload.body)} chars"),
     ]
     widgets.append(_card("Properties", Static(_kv_table(rows))))
-    widgets.append(_card("Body", Markdown(payload.body or "_(empty)_")))
+    widgets.append(_card("Body", _bounded_markdown(payload.body)))
     return widgets
 
 
