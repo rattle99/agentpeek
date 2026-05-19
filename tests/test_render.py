@@ -18,8 +18,12 @@ from agentpeek.models import (
     SlashCommand,
 )
 from agentpeek.tui.render import (
+    _BODY_PREVIEW_LIMIT,
     COLOR_MUTED,
     COLOR_WARNING,
+    _bounded_markdown,
+    _hooks_detail_widgets,
+    _plugins_detail_widgets,
     item_body,
     item_path,
     redact,
@@ -313,3 +317,141 @@ def test_item_body_unknown_payload_returns_none() -> None:
     # group-header sentinel, etc.) shouldn't blow up.
     assert item_body(None) is None
     assert item_body("string-payload") is None
+
+
+# --- _bounded_markdown -------------------------------------------------
+
+
+def test_bounded_markdown_passes_short_body_through() -> None:
+    body = "# heading\n\ntext"
+    md = _bounded_markdown(body)
+    # Markdown widget exposes the source as `_markdown` (Textual private)
+    # — assert that what we asked to render is what's in there, sliced
+    # to its first line for stability across Textual versions.
+    assert body in (getattr(md, "_initial_markdown", None) or "")
+
+
+def test_bounded_markdown_truncates_long_body() -> None:
+    body = "x" * (_BODY_PREVIEW_LIMIT + 1000)
+    md = _bounded_markdown(body)
+    rendered = getattr(md, "_initial_markdown", None) or ""
+    assert "truncated" in rendered
+    assert "1000 more bytes" in rendered
+    # Don't render past the cap (plus the marker line).
+    assert len(rendered) < _BODY_PREVIEW_LIMIT + 200
+
+
+def test_bounded_markdown_empty_body_shows_placeholder() -> None:
+    md = _bounded_markdown("")
+    rendered = getattr(md, "_initial_markdown", None) or ""
+    assert "empty" in rendered
+
+
+# --- _hooks_detail_widgets ---------------------------------------------
+
+
+def test_hooks_detail_widgets_renders_properties_card() -> None:
+    h = HookSpec(
+        event="PreToolUse",
+        matcher="Bash",
+        type="command",
+        command="bash ~/.claude/hooks/foo.sh",
+        timeout=30,
+        referenced_script=Path("/r/hooks/foo.sh"),
+        script_exists=True,
+    )
+    widgets = _hooks_detail_widgets(h)
+    # Properties card + Command card + Script card.
+    assert len(widgets) == 3
+
+
+def test_hooks_detail_widgets_inline_hook_omits_script_card() -> None:
+    h = HookSpec(
+        event="PreToolUse",
+        matcher=None,
+        type="command",
+        command="echo hi",
+        timeout=None,
+        referenced_script=None,
+        script_exists=False,
+    )
+    widgets = _hooks_detail_widgets(h)
+    # No referenced_script → no Script card.
+    assert len(widgets) == 2
+
+
+def test_hooks_detail_widgets_non_hook_payload_falls_back() -> None:
+    widgets = _hooks_detail_widgets("not a hook")
+    assert len(widgets) == 1  # placeholder Static
+
+
+# --- _plugins_detail_widgets -------------------------------------------
+
+
+def test_plugins_detail_widgets_minimal_plugin() -> None:
+    p = Plugin(
+        id="alpha",
+        marketplace="m",
+        qualified_id="alpha@m",
+        enabled=True,
+        installations=(),
+    )
+    widgets = _plugins_detail_widgets(p)
+    # Header + Properties + Installations placeholder ("no installations
+    # on disk"). No manifest, no skills/agents/commands/hooks/mcps.
+    assert len(widgets) == 3
+
+
+def test_plugins_detail_widgets_with_all_content_sections() -> None:
+    from agentpeek.models import PluginAgent, PluginManifest, PluginSkill
+
+    inst = PluginInstallation(
+        scope="user",
+        install_path=Path("/r/plugin"),
+        version="1.0",
+        installed_at="t",
+        last_updated="t",
+        git_commit_sha="abc123",
+        project_path=None,
+    )
+    skill = PluginSkill(
+        path=Path("/r/SKILL.md"), name="s", description="d", body="b"
+    )
+    agent = PluginAgent(
+        path=Path("/r/AGENT.md"), name="a", description="d", body="b"
+    )
+    cmd = SlashCommand(
+        path=Path("/r/cmd.md"), name="cmd", description=None,
+        argument_hint=None, allowed_tools=(), body="",
+    )
+    hook = HookSpec(
+        event="PreToolUse", matcher=None, type="command",
+        command="echo hi", timeout=None,
+        referenced_script=None, script_exists=False,
+    )
+    mcp = MCPServer(
+        name="srv", source_path=Path("/r/.mcp.json"),
+        command="srv", args=(), env={},
+    )
+    p = Plugin(
+        id="alpha", marketplace="m", qualified_id="alpha@m", enabled=True,
+        installations=(inst,),
+        manifest=PluginManifest(
+            description="d", version="1.0", author_name="a",
+            author_email=None, homepage=None, license=None, keywords=(),
+        ),
+        skills=(skill,),
+        agents=(agent,),
+        commands=(cmd,),
+        hooks=(hook,),
+        mcps=(mcp,),
+    )
+    widgets = _plugins_detail_widgets(p)
+    # Header + Properties + Manifest + Installations + Skills + Agents
+    # + Commands + Hooks + MCPs = 9.
+    assert len(widgets) == 9
+
+
+def test_plugins_detail_widgets_non_plugin_payload_falls_back() -> None:
+    widgets = _plugins_detail_widgets(None)
+    assert len(widgets) == 1
