@@ -22,7 +22,7 @@ Requires Python ≥ 3.11. Linux and macOS only.
 - **Multi-scope** — user-scoped (`~/.claude/`) and project-scoped (`.claude/` found by walking up from cwd) configurations shown side by side with `[U]` / `[P]` badges. Health checks compare the two and flag conflicts.
 - **Plugin contents** — every installed plugin is opened up: manifest, skills, agents, slash commands, hooks, MCP servers. Plugin-contributed commands / hooks / MCPs also merge into the top-level categories with a `[plug:<id>]` provenance tag.
 - **Auto-memory** — Claude Code project memories (under `~/.claude/projects/<encoded>/memory/`) are scanned and labelled with their actual project path (resolved from session logs, not the lossy directory encoding).
-- **Health checks** — orphan hook scripts, missing plugin install paths, conflicting key bindings, scope override conflicts, cross-scope layered memory, and more. Severity-coloured warning cards in the detail pane.
+- **Health checks** — orphan hook scripts, missing plugin install paths, conflicting key bindings, scope override conflicts, cross-scope layered memory, hooks referencing dynamic env vars (`${CLAUDE_PROJECT_DIR}`, `$HOME`, …) flagged so you know which won't resolve at scan time, and more. Severity-coloured warning cards in the detail pane.
 
 ## Keybindings
 
@@ -49,7 +49,7 @@ Built on Textual — the theme follows `Ctrl+P` (palette) and reflows colours ac
 ## Supported agent CLIs
 
 - **Claude Code** — full support today.
-- **Codex / Gemini CLI / Cursor** — planned. The internal `Source` protocol is in place so adding another CLI is a new `Source` implementation, not a rewrite.
+- Support for other agents (Codex, Gemini CLI, Cursor) coming.
 
 ## License
 
