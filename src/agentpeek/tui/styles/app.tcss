@@ -235,3 +235,35 @@ SkillDetailModal #skill-modal-body {
     height: 1fr;
     background: $surface;
 }
+
+/* Agent detail modal — mirrors SkillDetailModal layout, popped when
+   Enter is pressed on a row of the plugin-detail Agents card. */
+AgentDetailModal {
+    align: center middle;
+    background: $background 60%;
+}
+
+AgentDetailModal > #agent-modal-card {
+    width: 80%;
+    height: 80%;
+    background: $surface;
+    border: round $accent;
+    padding: 1 2;
+}
+
+AgentDetailModal #agent-modal-title {
+    text-style: bold;
+}
+
+AgentDetailModal #agent-modal-source {
+    padding-bottom: 1;
+}
+
+AgentDetailModal #agent-modal-desc {
+    padding-bottom: 1;
+}
+
+AgentDetailModal #agent-modal-body {
+    height: 1fr;
+    background: $surface;
+}

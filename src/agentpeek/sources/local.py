@@ -127,6 +127,7 @@ class LocalSource:
             theme=_as_str(user_data.get("theme")),
             editor_mode=_as_str(user_data.get("editorMode")),
             effort_level=_as_str(user_data.get("effortLevel")),
+            output_style=_as_str(user_data.get("outputStyle")),
             env=MappingProxyType(env),
             permissions_allow=permissions_allow,
             permissions_deny=permissions_deny,

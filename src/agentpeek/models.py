@@ -19,6 +19,7 @@ class SettingsBundle:
     theme: str | None
     editor_mode: str | None
     effort_level: str | None
+    output_style: str | None
     env: Mapping[str, str]
     permissions_allow: tuple[str, ...]
     permissions_deny: tuple[str, ...]

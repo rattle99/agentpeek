@@ -18,6 +18,7 @@ from agentpeek.models import (
     MCPServer,
     MemoryFile,
     Plugin,
+    PluginAgent,
     PluginManifest,
     PluginSkill,
     ScanReport,
@@ -190,6 +191,24 @@ class _SkillsDataTable(_PendingDataTable):
         self.plugin_skills = skills
 
 
+class _AgentsDataTable(_PendingDataTable):
+    """Agents table inside the plugin detail card.
+
+    Mirror of `_SkillsDataTable` — carries `PluginAgent` instances so
+    MainScreen can resolve a row back to an agent and push the
+    AgentDetailModal.
+    """
+
+    def __init__(
+        self,
+        columns: tuple[str, ...],
+        rows: tuple[tuple[str, ...], ...],
+        agents: tuple["PluginAgent", ...],
+    ) -> None:
+        super().__init__(columns=columns, rows=rows)
+        self.plugin_agents = agents
+
+
 def _card(
     title: str, *children: Widget, severity: Severity | None = None
 ) -> Container:
@@ -239,6 +258,19 @@ def scope_path(report: ScanReport) -> str:
         return f"~/{target.relative_to(home)}"
     except ValueError:
         return str(target)
+
+
+def item_body(payload: object) -> str | None:
+    """Resolve the body text of an item, dispatched by payload type.
+
+    Used by `b` (yank body). Returns None for payloads with no
+    natural "body" (settings scalars, plugin rows, keybindings, etc).
+    """
+    if isinstance(payload, MemoryFile | SlashCommand | PluginSkill | PluginAgent):
+        return payload.body
+    if isinstance(payload, HookSpec):
+        return payload.command
+    return None
 
 
 def item_path(payload: object, result: ScanResult) -> Path | None:  # noqa: PLR0911
@@ -506,6 +538,10 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
         (
             _scalar_label("Effort level", s.effort_level),
             _SettingsItem("Effort level", "scalar", s.effort_level),
+        ),
+        (
+            _scalar_label("Output style", s.output_style),
+            _SettingsItem("Output style", "scalar", s.output_style),
         ),
         (
             _count_item_label("Env vars", len(s.env)),
@@ -782,11 +818,12 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
         widgets.append(
             _card(
                 f"Agents ({len(payload.agents)})",
-                _PendingDataTable(
+                _AgentsDataTable(
                     columns=("name", "description"),
                     rows=tuple(
                         (a.name, a.description or "") for a in payload.agents
                     ),
+                    agents=payload.agents,
                 ),
             )
         )

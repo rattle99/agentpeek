@@ -19,15 +19,17 @@ from textual.widgets import (
     Static,
 )
 
-from agentpeek.models import PluginSkill, ScanReport
+from agentpeek.models import PluginAgent, PluginSkill, ScanReport
 from agentpeek.tui.render import (
     CATEGORIES,
+    item_body,
     item_path,
     items_for_report,
     render_detail_widgets,
     scope_summary,
     sidebar_count,
 )
+from agentpeek.tui.screens.agent_detail import AgentDetailModal
 from agentpeek.tui.screens.help import HelpScreen
 from agentpeek.tui.screens.skill_detail import SkillDetailModal
 
@@ -42,6 +44,7 @@ class MainScreen(Screen[None]):
         Binding("r", "refresh", "Refresh"),
         Binding("o", "open", "Open"),
         Binding("y", "yank", "Yank path"),
+        Binding("b", "yank_body", "Yank body"),
         Binding("slash", "focus_filter", "Filter"),
         Binding("question_mark", "help", "Help"),
         Binding("escape", "clear_filter", show=False),
@@ -126,14 +129,17 @@ class MainScreen(Screen[None]):
         selectable rows; headers are dropped when a filter is active.
         """
         item_list = self.query_one("#item-list", ListView)
-        items = items_for_report(self._report, self.selected_category)
+        all_items = items_for_report(self._report, self.selected_category)
+        total_selectable = sum(1 for it in all_items if it[1] is not None)
         if self.filter_text:
             needle = self.filter_text.lower()
             items = [
                 it
-                for it in items
+                for it in all_items
                 if it[1] is not None and needle in it[0].plain.lower()
             ]
+        else:
+            items = all_items
         await item_list.clear()
         first_selectable: int | None = None
         for i, (label, payload, _scope) in enumerate(items):
@@ -150,7 +156,12 @@ class MainScreen(Screen[None]):
             self.selected_category,
         )
         selectable_count = sum(1 for it in items if it[1] is not None)
-        title.update(f"{name}  ({selectable_count})")
+        if self.filter_text:
+            title.update(
+                f"{name}  (filtered: {selectable_count} / {total_selectable})"
+            )
+        else:
+            title.update(f"{name}  ({selectable_count})")
         if first_selectable is not None:
             item_list.index = first_selectable
             self.selected_index = first_selectable
@@ -190,23 +201,28 @@ class MainScreen(Screen[None]):
         return item_path(payload, result)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Pop SkillDetailModal when the user presses Enter on a row of
-        the plugin-detail's Skills card.
+        """Pop a detail modal when the user presses Enter on a Skills or
+        Agents row inside a plugin's detail card.
 
-        Only the Skills table (`_SkillsDataTable`) carries a
-        `plugin_skills` attribute; other plugin-detail DataTables
-        (installations, hooks, commands, mcps) leave this event a no-op.
+        Resolved by duck-typing the table — only the `_SkillsDataTable`
+        carries `plugin_skills`, only `_AgentsDataTable` carries
+        `plugin_agents`. Other plugin-detail DataTables (installations,
+        hooks, commands, mcps) leave this event a no-op.
         """
         table = event.data_table  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
-        skills_attr = getattr(table, "plugin_skills", None)  # pyright: ignore[reportUnknownArgumentType]
-        if not isinstance(skills_attr, tuple):
-            return
-        skills = cast("tuple[PluginSkill, ...]", skills_attr)
         idx = event.cursor_row
-        if not 0 <= idx < len(skills):
-            return
         app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
-        app.push_screen(SkillDetailModal(skills[idx]))
+        skills_attr = getattr(table, "plugin_skills", None)  # pyright: ignore[reportUnknownArgumentType]
+        if isinstance(skills_attr, tuple):
+            skills = cast("tuple[PluginSkill, ...]", skills_attr)
+            if 0 <= idx < len(skills):
+                app.push_screen(SkillDetailModal(skills[idx]))
+            return
+        agents_attr = getattr(table, "plugin_agents", None)  # pyright: ignore[reportUnknownArgumentType]
+        if isinstance(agents_attr, tuple):
+            agents = cast("tuple[PluginAgent, ...]", agents_attr)
+            if 0 <= idx < len(agents):
+                app.push_screen(AgentDetailModal(agents[idx]))
 
     def action_help(self) -> None:
         """Open a help modal listing every shown Binding."""
@@ -252,6 +268,26 @@ class MainScreen(Screen[None]):
         app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
         app.copy_to_clipboard(str(path))
         self.notify(f"Copied {path}", timeout=2)
+
+    def action_yank_body(self) -> None:
+        """Copy the highlighted item's body text to the clipboard.
+
+        Works for memory entries, slash commands, plugin skills, plugin
+        agents (their body field), and hooks (their command string).
+        """
+        items = items_for_report(self._report, self.selected_category)
+        idx = self.selected_index
+        if not 0 <= idx < len(items):
+            self.notify("No item selected", severity="warning", timeout=2)
+            return
+        _label, payload, _scope = items[idx]
+        body = item_body(payload)
+        if not body:
+            self.notify("No body to copy", severity="warning", timeout=2)
+            return
+        app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
+        app.copy_to_clipboard(body)
+        self.notify(f"Copied body ({len(body)} chars)", timeout=2)
 
     def action_open(self) -> None:
         """Open the highlighted item's file in $EDITOR (suspending the TUI)."""
