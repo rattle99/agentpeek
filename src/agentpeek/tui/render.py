@@ -660,6 +660,8 @@ def _hooks_detail_widgets(payload: object) -> list[Widget]:
             else _muted_cell("(default)"),
         ),
     ]
+    if payload.referenced_dynamic:
+        rows.append(("Dynamic vars", Text("yes", style="bold yellow")))
     widgets: list[Widget] = [_card("Properties", Static(_kv_table(rows)))]
     widgets.append(
         _card(

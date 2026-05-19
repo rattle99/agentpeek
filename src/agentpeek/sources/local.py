@@ -159,7 +159,21 @@ class LocalSource:
                     cmd = _as_str(inner_d.get("command"))
                     if cmd is None:
                         continue
-                    referenced, dynamic = _resolve_script(cmd, root)
+                    resolved = _resolve_script(cmd, root)
+                    if resolved is None:
+                        warnings.append(
+                            ScanWarning(
+                                path=None,
+                                category="hooks",
+                                reason=(
+                                    f"could not parse hook command "
+                                    f"(unmatched quote?): {cmd[:80]}"
+                                ),
+                            )
+                        )
+                        referenced, dynamic = None, False
+                    else:
+                        referenced, dynamic = resolved
                     exists = referenced is not None and referenced.exists()
                     if referenced is not None and not exists and not dynamic:
                         warnings.append(
@@ -433,15 +447,21 @@ _DEFAULT_VAR_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}")
 _BARE_VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 
 
-def _resolve_script(command: str, root: Path) -> tuple[Path | None, bool]:
+def _resolve_script(
+    command: str, root: Path
+) -> tuple[Path | None, bool] | None:
     """Best-effort extraction of the script path from a hook command.
 
-    Returns `(path, is_dynamic)`. Handles `~/.claude`, `$HOME`,
-    `${VAR:-default}`, `${CLAUDE_PROJECT_DIR}`-style env vars, absolute
-    paths under `root`, and quoted tokens. When a token contains
-    `.claude/<tail>`, the tail is anchored against `root` — true for
-    the common pattern where hook commands reference files inside the
-    same `.claude/` they live in.
+    Returns `(path, is_dynamic)`, or `None` if the command can't be
+    shell-tokenized (unmatched quote, etc.) — callers should emit a
+    warning and skip script resolution rather than substring-matching
+    against malformed tokens.
+
+    Handles `~/.claude`, `$HOME`, `${VAR:-default}`, `${CLAUDE_PROJECT_DIR}`-
+    style env vars, absolute paths under `root`, and quoted tokens. When
+    a token contains `.claude/<tail>`, the tail is anchored against `root`
+    — true for the common pattern where hook commands reference files
+    inside the same `.claude/` they live in.
 
     `is_dynamic` flags that at least one unresolved env-var reference
     was seen; diagnostic only, doesn't affect orphan-hook logic since
@@ -450,7 +470,7 @@ def _resolve_script(command: str, root: Path) -> tuple[Path | None, bool]:
     try:
         tokens = shlex.split(command)
     except ValueError:
-        tokens = command.split()
+        return None
 
     is_dynamic = False
     root_str = str(root)
@@ -548,6 +568,12 @@ def _read_memory_file(
     )
 
 
+# Cap how many session logs we crack open per project. A handful is
+# enough — Claude Code writes cwd on every session — and we don't want
+# to walk a long archive on a project with hundreds of sessions.
+_MAX_JSONL_PROBES = 8
+
+
 @functools.lru_cache(maxsize=512)
 def _resolve_project_label(proj_dir: Path) -> str:
     """Return the original cwd for a Claude Code project directory.
@@ -558,13 +584,13 @@ def _resolve_project_label(proj_dir: Path) -> str:
     field embedded in any `.jsonl` session log under the project dir.
     Falls back to the raw directory name when no jsonl yields a cwd.
     """
-    for jsonl in sorted(proj_dir.glob("*.jsonl")):
+    for jsonl in sorted(proj_dir.glob("*.jsonl"))[:_MAX_JSONL_PROBES]:
         try:
             with jsonl.open(encoding="utf-8") as f:
                 for line in f:
                     try:
                         rec = json.loads(line)
-                    except (ValueError, json.JSONDecodeError):
+                    except json.JSONDecodeError:
                         continue
                     if isinstance(rec, dict):
                         cwd = cast("dict[str, object]", rec).get("cwd")
@@ -572,9 +598,6 @@ def _resolve_project_label(proj_dir: Path) -> str:
                             return cwd
         except OSError:
             continue
-        # First jsonl exhausted without a cwd — subsequent logs unlikely
-        # to differ; bail to keep the lookup O(1) per project dir.
-        break
     return proj_dir.name
 
 

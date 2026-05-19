@@ -18,8 +18,10 @@ class FrontmatterFile:
 def load_frontmatter(
     path: Path, *, category: str
 ) -> tuple[FrontmatterFile | None, ScanWarning | None]:
+    # `utf-8-sig` consumes a leading BOM (U+FEFF) if present and is
+    # equivalent to plain `utf-8` otherwise.
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")
     except FileNotFoundError:
         return None, ScanWarning(
             path=path, category=category, reason=f"file not found: {path}"
@@ -46,6 +48,8 @@ def load_frontmatter(
             path=path, category=category, reason=f"unexpected error: {e!r}"
         )
 
+    # python-frontmatter normalizes any non-mapping YAML (scalars, lists,
+    # null) to an empty dict before we see it, so the cast here is safe.
     metadata = cast("Mapping[str, object]", dict(post.metadata))  # type: ignore[reportUnknownArgumentType]
     body = cast("str", post.content)  # type: ignore[reportUnknownMemberType]
     return FrontmatterFile(metadata=metadata, body=body), None
