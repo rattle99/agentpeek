@@ -383,8 +383,10 @@ def items_for_report(
 ) -> list[tuple[Content, object, str]]:
     """Items with theme-aware labels.
 
-    In multi-scope mode labels are prefixed with a styled `[U]` or `[P]`
-    marker; in single-scope mode the bare label is used.
+    Labels are prefixed with `[U]` / `[P]` only when both scopes have
+    items in this category — when one side is empty the prefix would
+    just be noise on every row. The scope is still visible as the
+    `[user]` / `[project]` chip on the detail pane.
 
     The "skills" category is special-cased to group by source plugin
     rather than scope: each plugin becomes a non-selectable header row
@@ -394,16 +396,20 @@ def items_for_report(
     """
     if key == "skills":
         return _skills_grouped_items(report)
-    multi = report.user is not None and report.project is not None
+    user_items = (
+        category_items(report.user, key) if report.user is not None else []
+    )
+    project_items = (
+        category_items(report.project, key) if report.project is not None else []
+    )
+    need_prefix = bool(user_items) and bool(project_items)
     items: list[tuple[Content, object, str]] = []
-    if report.user is not None:
-        for label, payload in category_items(report.user, key):
-            display = _prefix(label, "U", COLOR_PRIMARY) if multi else label
-            items.append((display, payload, "user"))
-    if report.project is not None:
-        for label, payload in category_items(report.project, key):
-            display = _prefix(label, "P", COLOR_ACCENT) if multi else label
-            items.append((display, payload, "project"))
+    for label, payload in user_items:
+        display = _prefix(label, "U", COLOR_PRIMARY) if need_prefix else label
+        items.append((display, payload, "user"))
+    for label, payload in project_items:
+        display = _prefix(label, "P", COLOR_ACCENT) if need_prefix else label
+        items.append((display, payload, "project"))
     return items
 
 

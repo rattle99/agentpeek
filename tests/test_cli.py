@@ -40,3 +40,17 @@ def test_source_unknown_exits_nonzero(
     assert excinfo.value.code == 2
     captured = capsys.readouterr()
     assert "invalid choice" in captured.err
+
+
+def test_root_directory_without_claude_config_exits_nonzero(
+    tmp_path: pytest.TempPathFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # An existing directory that has none of settings.json / plugins/ /
+    # hooks/ / commands/ / CLAUDE.md / keybindings.json should be
+    # refused with a clear message rather than opening the TUI to an
+    # empty scan.
+    plain = tmp_path  # type: ignore[assignment]
+    assert main([f"--root={plain}"]) == 2
+    captured = capsys.readouterr()
+    assert "no Claude Code config" in captured.err

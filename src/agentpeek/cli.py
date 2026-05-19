@@ -1,8 +1,10 @@
 import argparse
 import importlib.metadata
+import sys
 from pathlib import Path
 
 from agentpeek.logging_setup import configure_logging
+from agentpeek.sources.local import LocalSource
 
 
 def _existing_dir(value: str) -> Path:
@@ -40,6 +42,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     configure_logging(args.log_level)
+
+    if args.root is not None and not LocalSource().detect(args.root):
+        print(
+            f"agentpeek: no Claude Code config found in {str(args.root)!r} "
+            "(pass a .claude/ directory)",
+            file=sys.stderr,
+        )
+        return 2
 
     # Defer Textual import so --version and --help are fast and don't drag the
     # TUI into module-load time when only the CLI surface is exercised.
