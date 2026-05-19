@@ -21,6 +21,13 @@ from agentpeek.models import (
     SlashCommand,
 )
 from agentpeek.parsers import load_frontmatter, load_json
+from agentpeek.parsers.coerce import (
+    as_dict,
+    as_int,
+    as_str,
+    as_str_dict,
+    as_str_tuple,
+)
 from agentpeek.parsers.plugin_contents import parse_plugin_contents
 
 
@@ -82,30 +89,30 @@ class LocalSource:
         if not user_path.exists() and not local_path.exists():
             return None
 
-        env_user = _as_str_dict(user_data.get("env"))
-        env_local = _as_str_dict(local_data.get("env"))
+        env_user = as_str_dict(user_data.get("env"))
+        env_local = as_str_dict(local_data.get("env"))
         env = {**env_user, **env_local}
 
-        permissions = _as_dict(local_data.get("permissions")) or _as_dict(
+        permissions = as_dict(local_data.get("permissions")) or as_dict(
             user_data.get("permissions")
         )
-        permissions_allow = _as_str_tuple(
+        permissions_allow = as_str_tuple(
             permissions.get("allow") if permissions else None
         )
-        permissions_deny = _as_str_tuple(
+        permissions_deny = as_str_tuple(
             permissions.get("deny") if permissions else None
         )
-        permissions_ask = _as_str_tuple(permissions.get("ask") if permissions else None)
+        permissions_ask = as_str_tuple(permissions.get("ask") if permissions else None)
 
-        user_plugins = _as_dict(user_data.get("enabledPlugins")) or {}
-        local_plugins = _as_dict(local_data.get("enabledPlugins")) or {}
+        user_plugins = as_dict(user_data.get("enabledPlugins")) or {}
+        local_plugins = as_dict(local_data.get("enabledPlugins")) or {}
         enabled_set: set[str] = set()
         for k, v in {**user_plugins, **local_plugins}.items():
             if bool(v):
                 enabled_set.add(str(k))
         enabled_plugins = tuple(sorted(enabled_set))
 
-        hooks_raw_dict = _as_dict(user_data.get("hooks")) or {}
+        hooks_raw_dict = as_dict(user_data.get("hooks")) or {}
         hooks_raw: dict[str, tuple[dict[str, object], ...]] = {}
         for event, entries in hooks_raw_dict.items():
             if isinstance(entries, list):
@@ -123,11 +130,11 @@ class LocalSource:
         return SettingsBundle(
             user_settings_path=user_path if user_path.exists() else None,
             local_settings_path=local_path if local_path.exists() else None,
-            model=_as_str(user_data.get("model")),
-            theme=_as_str(user_data.get("theme")),
-            editor_mode=_as_str(user_data.get("editorMode")),
-            effort_level=_as_str(user_data.get("effortLevel")),
-            output_style=_as_str(user_data.get("outputStyle")),
+            model=as_str(user_data.get("model")),
+            theme=as_str(user_data.get("theme")),
+            editor_mode=as_str(user_data.get("editorMode")),
+            effort_level=as_str(user_data.get("effortLevel")),
+            output_style=as_str(user_data.get("outputStyle")),
             env=MappingProxyType(env),
             permissions_allow=permissions_allow,
             permissions_deny=permissions_deny,
@@ -148,7 +155,7 @@ class LocalSource:
         hooks: list[HookSpec] = []
         for event, entries in settings.hooks_raw.items():
             for entry in entries:
-                matcher = _as_str(entry.get("matcher"))
+                matcher = as_str(entry.get("matcher"))
                 inner_list = entry.get("hooks")
                 if not isinstance(inner_list, list):
                     continue
@@ -156,7 +163,7 @@ class LocalSource:
                     if not isinstance(inner, dict):
                         continue
                     inner_d = cast("dict[str, object]", inner)
-                    cmd = _as_str(inner_d.get("command"))
+                    cmd = as_str(inner_d.get("command"))
                     if cmd is None:
                         continue
                     resolved = _resolve_script(cmd, root)
@@ -187,9 +194,9 @@ class LocalSource:
                         HookSpec(
                             event=event,
                             matcher=matcher,
-                            type=_as_str(inner_d.get("type")) or "command",
+                            type=as_str(inner_d.get("type")) or "command",
                             command=cmd,
-                            timeout=_as_int(inner_d.get("timeout")),
+                            timeout=as_int(inner_d.get("timeout")),
                             referenced_script=referenced,
                             script_exists=exists,
                             referenced_dynamic=dynamic,
@@ -230,7 +237,7 @@ class LocalSource:
                     )
                 )
                 continue
-            allowed = _as_str(file.metadata.get("allowed-tools"))
+            allowed = as_str(file.metadata.get("allowed-tools"))
             allowed_tuple: tuple[str, ...] = (
                 tuple(s.strip() for s in allowed.split(",") if s.strip())
                 if allowed
@@ -240,8 +247,8 @@ class LocalSource:
                 SlashCommand(
                     path=md_path,
                     name=name,
-                    description=_as_str(file.metadata.get("description")),
-                    argument_hint=_as_str(file.metadata.get("argument-hint")),
+                    description=as_str(file.metadata.get("description")),
+                    argument_hint=as_str(file.metadata.get("argument-hint")),
                     allowed_tools=allowed_tuple,
                     body=file.body,
                 )
@@ -358,7 +365,7 @@ class LocalSource:
                     if not isinstance(ctx_obj, dict):
                         continue
                     ctx_d = cast("dict[str, object]", ctx_obj)
-                    context = _as_str(ctx_d.get("context")) or ""
+                    context = as_str(ctx_d.get("context")) or ""
                     inner = ctx_d.get("bindings")
                     if isinstance(inner, dict):
                         for key, action in cast("dict[str, object]", inner).items():
@@ -398,49 +405,17 @@ class LocalSource:
                     if isinstance(args_raw, list)
                     else ()
                 )
-                env_obj = _as_str_dict(srv_d.get("env"))
+                env_obj = as_str_dict(srv_d.get("env"))
                 results.append(
                     MCPServer(
                         name=str(srv_name),
                         source_path=path,
-                        command=_as_str(srv_d.get("command")),
+                        command=as_str(srv_d.get("command")),
                         args=args_tuple,
                         env=MappingProxyType(env_obj),
                     )
                 )
         return tuple(results)
-
-
-def _as_str(v: object) -> str | None:
-    return v if isinstance(v, str) else None
-
-
-def _as_int(v: object) -> int | None:
-    if isinstance(v, bool):
-        return None
-    return v if isinstance(v, int) else None
-
-
-def _as_dict(v: object) -> dict[str, object] | None:
-    if isinstance(v, dict):
-        return cast("dict[str, object]", v)
-    return None
-
-
-def _as_str_dict(v: object) -> dict[str, str]:
-    if isinstance(v, dict):
-        return {
-            str(k): str(val)
-            for k, val in cast("dict[str, object]", v).items()
-            if isinstance(val, str)
-        }
-    return {}
-
-
-def _as_str_tuple(v: object) -> tuple[str, ...]:
-    if isinstance(v, list):
-        return tuple(s for s in cast("list[object]", v) if isinstance(s, str))
-    return ()
 
 
 _DEFAULT_VAR_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}")
@@ -520,8 +495,8 @@ def _collect_enabled_plugins(root: Path, warnings: list[ScanWarning]) -> set[str
     remote_data = _safe_load_json_dict(
         root / "remote-settings.json", "plugins", warnings
     )
-    enabled_user = _as_dict(user_data.get("enabledPlugins")) or {}
-    enabled_remote = _as_dict(remote_data.get("enabledPlugins")) or {}
+    enabled_user = as_dict(user_data.get("enabledPlugins")) or {}
+    enabled_remote = as_dict(remote_data.get("enabledPlugins")) or {}
 
     for qid in set(enabled_user) & set(enabled_remote):
         if bool(enabled_user[qid]) != bool(enabled_remote[qid]):
@@ -609,16 +584,16 @@ def _parse_installations(
         if not isinstance(inst, dict):
             continue
         inst_d = cast("dict[str, object]", inst)
-        install_path_str = _as_str(inst_d.get("installPath")) or ""
-        project_path_str = _as_str(inst_d.get("projectPath"))
+        install_path_str = as_str(inst_d.get("installPath")) or ""
+        project_path_str = as_str(inst_d.get("projectPath"))
         installations.append(
             PluginInstallation(
-                scope=_as_str(inst_d.get("scope")) or "",
+                scope=as_str(inst_d.get("scope")) or "",
                 install_path=Path(install_path_str),
-                version=_as_str(inst_d.get("version")) or "",
-                installed_at=_as_str(inst_d.get("installedAt")) or "",
-                last_updated=_as_str(inst_d.get("lastUpdated")) or "",
-                git_commit_sha=_as_str(inst_d.get("gitCommitSha")),
+                version=as_str(inst_d.get("version")) or "",
+                installed_at=as_str(inst_d.get("installedAt")) or "",
+                last_updated=as_str(inst_d.get("lastUpdated")) or "",
+                git_commit_sha=as_str(inst_d.get("gitCommitSha")),
                 project_path=Path(project_path_str) if project_path_str else None,
             )
         )

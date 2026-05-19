@@ -31,6 +31,7 @@ from agentpeek.models import (
     SlashCommand,
 )
 from agentpeek.parsers import load_frontmatter, load_json
+from agentpeek.parsers.coerce import as_int, as_str, as_str_dict
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,8 +103,8 @@ def _parse_manifest(
     author_email: str | None = None
     if isinstance(author, dict):
         a = cast("dict[str, object]", author)
-        author_name = _as_str(a.get("name"))
-        author_email = _as_str(a.get("email"))
+        author_name = as_str(a.get("name"))
+        author_email = as_str(a.get("email"))
     elif isinstance(author, str):
         author_name = author
     keywords_raw = d.get("keywords")
@@ -113,12 +114,12 @@ def _parse_manifest(
         else ()
     )
     manifest = PluginManifest(
-        description=_as_str(d.get("description")),
-        version=_as_str(d.get("version")),
+        description=as_str(d.get("description")),
+        version=as_str(d.get("version")),
         author_name=author_name,
         author_email=author_email,
-        homepage=_as_str(d.get("homepage")),
-        license=_as_str(d.get("license")),
+        homepage=as_str(d.get("homepage")),
+        license=as_str(d.get("license")),
         keywords=keywords,
     )
     return d, manifest
@@ -147,8 +148,8 @@ def _parse_skills(
         results.append(
             PluginSkill(
                 path=skill_md,
-                name=_as_str(file.metadata.get("name")) or sub.name,
-                description=_as_str(file.metadata.get("description")),
+                name=as_str(file.metadata.get("name")) or sub.name,
+                description=as_str(file.metadata.get("description")),
                 body=file.body,
                 source_plugin=qualified_id,
             )
@@ -171,8 +172,8 @@ def _parse_agents(
         results.append(
             PluginAgent(
                 path=md,
-                name=_as_str(file.metadata.get("name")) or md.stem,
-                description=_as_str(file.metadata.get("description")),
+                name=as_str(file.metadata.get("name")) or md.stem,
+                description=as_str(file.metadata.get("description")),
                 body=file.body,
                 source_plugin=qualified_id,
             )
@@ -214,7 +215,7 @@ def _parse_commands(
                 )
             )
             continue
-        allowed = _as_str(file.metadata.get("allowed-tools"))
+        allowed = as_str(file.metadata.get("allowed-tools"))
         allowed_tuple: tuple[str, ...] = (
             tuple(s.strip() for s in allowed.split(",") if s.strip())
             if allowed
@@ -224,8 +225,8 @@ def _parse_commands(
             SlashCommand(
                 path=md,
                 name=name,
-                description=_as_str(file.metadata.get("description")),
-                argument_hint=_as_str(file.metadata.get("argument-hint")),
+                description=as_str(file.metadata.get("description")),
+                argument_hint=as_str(file.metadata.get("argument-hint")),
                 allowed_tools=allowed_tuple,
                 body=file.body,
                 source_plugin=qualified_id,
@@ -265,7 +266,7 @@ def _parse_hooks(
             if not isinstance(entry, dict):
                 continue
             entry_d = cast("dict[str, object]", entry)
-            matcher = _as_str(entry_d.get("matcher"))
+            matcher = as_str(entry_d.get("matcher"))
             inner_list = entry_d.get("hooks")
             if not isinstance(inner_list, list):
                 continue
@@ -273,16 +274,16 @@ def _parse_hooks(
                 if not isinstance(inner_h, dict):
                     continue
                 inner_d = cast("dict[str, object]", inner_h)
-                cmd = _as_str(inner_d.get("command"))
+                cmd = as_str(inner_d.get("command"))
                 if cmd is None:
                     continue
                 results.append(
                     HookSpec(
                         event=event,
                         matcher=matcher,
-                        type=_as_str(inner_d.get("type")) or "command",
+                        type=as_str(inner_d.get("type")) or "command",
                         command=cmd,
-                        timeout=_as_int(inner_d.get("timeout")),
+                        timeout=as_int(inner_d.get("timeout")),
                         # Plugin hooks reference scripts inside the plugin
                         # install path; we don't currently resolve those (the
                         # existing _scan_hooks resolves against the root,
@@ -340,11 +341,11 @@ def _parse_mcps(
                 if isinstance(args_raw, list)
                 else ()
             )
-            env_obj = _as_str_dict(srv_d.get("env"))
+            env_obj = as_str_dict(srv_d.get("env"))
             seen[str(srv_name)] = MCPServer(
                 name=str(srv_name),
                 source_path=source_path,
-                command=_as_str(srv_d.get("command")),
+                command=as_str(srv_d.get("command")),
                 args=args_tuple,
                 env=MappingProxyType(env_obj),
                 source_plugin=qualified_id,
@@ -352,24 +353,3 @@ def _parse_mcps(
     return tuple(seen[k] for k in sorted(seen))
 
 
-# --- Local helpers ------------------------------------------------------
-
-
-def _as_str(v: object) -> str | None:
-    return v if isinstance(v, str) else None
-
-
-def _as_int(v: object) -> int | None:
-    if isinstance(v, bool):
-        return None
-    return v if isinstance(v, int) else None
-
-
-def _as_str_dict(v: object) -> dict[str, str]:
-    if isinstance(v, dict):
-        return {
-            str(k): str(val)
-            for k, val in cast("dict[str, object]", v).items()
-            if isinstance(val, str)
-        }
-    return {}
