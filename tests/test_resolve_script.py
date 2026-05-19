@@ -85,13 +85,12 @@ def test_unresolvable_command_returns_none() -> None:
     assert dynamic is False
 
 
-def test_unbalanced_quote_falls_back_to_split(
+def test_unbalanced_quote_returns_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     root = tmp_path / ".claude"
-    # shlex.split raises ValueError on unbalanced quotes; the fallback
-    # whitespace-split still finds the ~/.claude token.
-    path, _ = _resolve_script("bash 'unclosed ~/.claude/hooks/foo.sh", root)
-    assert path is not None
-    assert "hooks/foo.sh" in str(path)
+    # shlex.split raises ValueError on unbalanced quotes — we now return
+    # None so the caller can warn rather than substring-matching against
+    # mangled tokens.
+    assert _resolve_script("bash 'unclosed ~/.claude/hooks/foo.sh", root) is None

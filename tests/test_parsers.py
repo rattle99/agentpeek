@@ -48,3 +48,30 @@ def test_load_frontmatter_broken(sample_claude_root: Path) -> None:
     assert file is None
     assert warning is not None
     assert warning.category == "test"
+
+
+def test_load_frontmatter_with_bom() -> None:
+    bom = Path(__file__).parent / "fixtures" / "frontmatter" / "bom.md"
+    file, warning = load_frontmatter(bom, category="test")
+    assert warning is None
+    assert file is not None
+    # `utf-8-sig` should have stripped the U+FEFF so the frontmatter
+    # parser sees a clean `---` opening fence.
+    assert file.metadata.get("description") == "BOM-prefixed file"
+    assert "body after BOM" in file.body
+
+
+def test_load_frontmatter_list_yaml_normalized_to_empty(
+    tmp_path: Path,
+) -> None:
+    # python-frontmatter coerces any non-mapping YAML (scalar, list,
+    # null) to an empty dict — we treat this as "no frontmatter" and
+    # don't warn. Documenting the behavior so a future library change
+    # that breaks this contract gets caught.
+    f = tmp_path / "list-fm.md"
+    f.write_text("---\n- tag1\n- tag2\n---\nbody\n")
+    file, warning = load_frontmatter(f, category="test")
+    assert warning is None
+    assert file is not None
+    assert file.metadata == {}
+    assert "body" in file.body

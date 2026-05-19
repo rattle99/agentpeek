@@ -8,15 +8,19 @@ from agentpeek.models import (
     MCPServer,
     MemoryFile,
     Plugin,
+    PluginAgent,
     PluginInstallation,
+    PluginSkill,
     ScanReport,
     ScanResult,
     ScanWarning,
+    SettingsBundle,
     SlashCommand,
 )
 from agentpeek.tui.render import (
     COLOR_MUTED,
     COLOR_WARNING,
+    item_body,
     item_path,
     redact,
     sidebar_count,
@@ -179,3 +183,133 @@ def test_item_path_keybinding_uses_bundle_path() -> None:
     kb = KeybindingsBundle(path=Path("/r/keybindings.json"), entries=(e,))
     result = dataclasses.replace(_empty_result(), keybindings=kb)
     assert item_path(e, result) == Path("/r/keybindings.json")
+
+
+# --- item_body ---------------------------------------------------------
+# `b` yanks the result of item_body. Every dispatched type and every
+# None-returning branch is asserted so a regression here can't quietly
+# yank the wrong content.
+
+
+def test_item_body_memory() -> None:
+    m = MemoryFile(
+        path=Path("/r/CLAUDE.md"),
+        body="# top of mind\n",
+        has_frontmatter=False,
+        kind="claude_md",
+        project_label=None,
+    )
+    assert item_body(m) == "# top of mind\n"
+
+
+def test_item_body_slash_command() -> None:
+    c = SlashCommand(
+        path=Path("/r/cmd.md"),
+        name="cmd",
+        description=None,
+        argument_hint=None,
+        allowed_tools=(),
+        body="do the thing",
+    )
+    assert item_body(c) == "do the thing"
+
+
+def test_item_body_plugin_skill() -> None:
+    s = PluginSkill(
+        path=Path("/r/SKILL.md"),
+        name="brainstorm",
+        description="think out loud",
+        body="## steps\n1. open mind",
+    )
+    assert item_body(s) == "## steps\n1. open mind"
+
+
+def test_item_body_plugin_agent() -> None:
+    a = PluginAgent(
+        path=Path("/r/AGENT.md"),
+        name="reviewer",
+        description="code review",
+        body="You are a senior reviewer.",
+    )
+    assert item_body(a) == "You are a senior reviewer."
+
+
+def test_item_body_hook_script_form() -> None:
+    h = HookSpec(
+        event="PreToolUse",
+        matcher=None,
+        type="command",
+        command="bash ~/.claude/hooks/foo.sh",
+        timeout=None,
+        referenced_script=Path("/r/hooks/foo.sh"),
+        script_exists=True,
+    )
+    assert item_body(h) == "bash ~/.claude/hooks/foo.sh"
+
+
+def test_item_body_hook_inline_form() -> None:
+    h = HookSpec(
+        event="PreToolUse",
+        matcher=None,
+        type="command",
+        command="echo hello",
+        timeout=None,
+        referenced_script=None,
+        script_exists=False,
+    )
+    assert item_body(h) == "echo hello"
+
+
+def test_item_body_settings_returns_none() -> None:
+    bundle = SettingsBundle(
+        user_settings_path=None,
+        local_settings_path=None,
+        model=None,
+        theme=None,
+        editor_mode=None,
+        effort_level=None,
+        output_style=None,
+        env={},
+        permissions_allow=(),
+        permissions_deny=(),
+        permissions_ask=(),
+        enabled_plugins=(),
+        hooks_raw={},
+        hooks_dir_files=0,
+    )
+    # Settings bundle has no single "body" — yanking it is a no-op.
+    assert item_body(bundle) is None
+
+
+def test_item_body_plugin_returns_none() -> None:
+    p = Plugin(
+        id="alpha",
+        marketplace="m",
+        qualified_id="alpha@m",
+        enabled=True,
+        installations=(),
+    )
+    assert item_body(p) is None
+
+
+def test_item_body_keybinding_returns_none() -> None:
+    e = KeybindingEntry(context="global", key="ctrl+x", action="quit")
+    assert item_body(e) is None
+
+
+def test_item_body_mcp_returns_none() -> None:
+    s = MCPServer(
+        name="srv",
+        source_path=Path("/r/.claude.json"),
+        command="srv",
+        args=(),
+        env={},
+    )
+    assert item_body(s) is None
+
+
+def test_item_body_unknown_payload_returns_none() -> None:
+    # Defensive — `b` on a row whose payload is unexpected (None, a
+    # group-header sentinel, etc.) shouldn't blow up.
+    assert item_body(None) is None
+    assert item_body("string-payload") is None
