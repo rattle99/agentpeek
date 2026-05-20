@@ -974,6 +974,8 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
 
 def _manifest_table(m: PluginManifest) -> Table:
     rows: list[tuple[str, RenderableType]] = []
+    if m.name:
+        rows.append(("Name", m.name))
     if m.description:
         rows.append(("Description", m.description))
     if m.version:
@@ -985,10 +987,14 @@ def _manifest_table(m: PluginManifest) -> Table:
         rows.append(("Author", author))
     if m.homepage:
         rows.append(("Homepage", m.homepage))
+    if m.repository:
+        rows.append(("Repository", m.repository))
     if m.license:
         rows.append(("License", m.license))
     if m.keywords:
         rows.append(("Keywords", ", ".join(m.keywords)))
+    if m.requires:
+        rows.append(("Requires", ", ".join(m.requires)))
     if not rows:
         rows.append(("(manifest)", _muted_cell("(no fields)")))
     return _kv_table(rows)
@@ -1029,6 +1035,14 @@ def _skills_detail_widgets(payload: object) -> list[Widget]:
         ),
         ("Path", str(payload.path)),
     ]
+    if payload.user_invocable is not None:
+        rows.append(("User-invocable", "yes" if payload.user_invocable else "no"))
+    if payload.when_to_use:
+        rows.append(("When to use", payload.when_to_use))
+    if payload.allowed_tools:
+        rows.append(("Allowed tools", ", ".join(payload.allowed_tools)))
+    if payload.disallowed_tools:
+        rows.append(("Disallowed tools", ", ".join(payload.disallowed_tools)))
     widgets.append(_card("Properties", Static(_kv_table(rows))))
     widgets.append(_card("Body", _bounded_markdown(payload.body)))
     return widgets

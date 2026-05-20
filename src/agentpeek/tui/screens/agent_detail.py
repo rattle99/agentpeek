@@ -41,6 +41,23 @@ class AgentDetailModal(ModalScreen[None]):
                 )
             if a.description:
                 yield Static(a.description, id="agent-modal-desc")
+            meta_lines: list[str] = []
+            if a.when_to_use:
+                meta_lines.append(f"**When to use:** {a.when_to_use}")
+            if a.user_invocable is not None:
+                meta_lines.append(
+                    f"**User-invocable:** {'yes' if a.user_invocable else 'no'}"
+                )
+            if a.allowed_tools:
+                meta_lines.append(
+                    f"**Allowed tools:** {', '.join(a.allowed_tools)}"
+                )
+            if a.disallowed_tools:
+                meta_lines.append(
+                    f"**Disallowed tools:** {', '.join(a.disallowed_tools)}"
+                )
+            if meta_lines:
+                yield Static("\n\n".join(meta_lines), id="agent-modal-meta")
             with VerticalScroll(id="agent-modal-body"):
                 yield Markdown(a.body or "_(empty)_")
 

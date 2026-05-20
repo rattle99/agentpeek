@@ -96,6 +96,17 @@ class PluginManifest:
     homepage: str | None
     license: str | None
     keywords: tuple[str, ...] = ()
+    # Declared name (`name` in plugin.json) — may differ from the
+    # install directory name. Surfaced so a renamed/forked plugin
+    # is recognizable.
+    name: str | None = None
+    # Upstream source repo URL. Accepts both bare-string form
+    # ("https://github.com/...") and the dict form ({"type": "git",
+    # "url": "..."}); normalized to a URL string here.
+    repository: str | None = None
+    # `requires` from plugin.json — qualified ids of plugins this
+    # plugin depends on. Empty when not declared.
+    requires: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +116,17 @@ class PluginSkill:
     description: str | None
     body: str
     source_plugin: str | None = None
+    # `when_to_use` — trigger guidance shown to Claude Code so it
+    # knows when to auto-load this skill. Often more descriptive
+    # than `description`; surfaced here so users can see the
+    # activation contract.
+    when_to_use: str | None = None
+    # True/False if `user-invocable` is set in frontmatter; None
+    # when the field is absent (defaults vary).
+    user_invocable: bool | None = None
+    # Comma-separated tool allow/deny lists from frontmatter.
+    allowed_tools: tuple[str, ...] = ()
+    disallowed_tools: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +136,10 @@ class PluginAgent:
     description: str | None
     body: str
     source_plugin: str | None = None
+    when_to_use: str | None = None
+    user_invocable: bool | None = None
+    allowed_tools: tuple[str, ...] = ()
+    disallowed_tools: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
