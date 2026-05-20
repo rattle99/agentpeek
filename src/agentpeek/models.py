@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
@@ -142,7 +142,11 @@ class Plugin:
     # `~/.claude/plugins/known_marketplaces.json` and the
     # `extraKnownMarketplaces` keys of user + remote settings. Empty
     # mapping when the marketplace isn't found in any registry.
-    marketplace_source: Mapping[str, str] = MappingProxyType({})
+    # `default_factory` (not bare default) because Python 3.11's
+    # @dataclass rejects MappingProxyType as a mutable default.
+    marketplace_source: Mapping[str, str] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 MemoryKind = Literal["claude_md", "memory_index", "memory_entry"]
