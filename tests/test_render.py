@@ -281,6 +281,8 @@ def test_item_body_settings_returns_none() -> None:
         permissions_ask=(),
         enabled_plugins=(),
         policy_restrictions={},
+        company_announcements=(),
+        spinner_tips=(),
         hooks_raw={},
         hooks_dir_files=0,
     )

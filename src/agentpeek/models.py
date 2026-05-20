@@ -28,6 +28,10 @@ class SettingsBundle:
     # `policy-limits.json` from this scope, flattened to
     # {restriction_name: allowed_bool}. Empty when the file is absent.
     policy_restrictions: Mapping[str, bool]
+    # Enterprise-pushed remote-settings.json extras. Surfaced so users
+    # can see what their managed config injected into the session.
+    company_announcements: tuple[str, ...]
+    spinner_tips: tuple[str, ...]
     env: Mapping[str, str]
     permissions_allow: tuple[str, ...]
     permissions_deny: tuple[str, ...]

@@ -83,9 +83,11 @@ class LocalSource:
     ) -> SettingsBundle | None:
         user_path = root / "settings.json"
         local_path = root / "settings.local.json"
+        remote_path = root / "remote-settings.json"
 
         user_data = _safe_load_json_dict(user_path, "settings", warnings)
         local_data = _safe_load_json_dict(local_path, "settings", warnings)
+        remote_data = _safe_load_json_dict(remote_path, "settings", warnings)
 
         if not user_path.exists() and not local_path.exists():
             return None
@@ -148,6 +150,10 @@ class LocalSource:
 
         policy_restrictions = _load_policy_limits(root, warnings)
 
+        company_announcements = as_str_tuple(remote_data.get("companyAnnouncements"))
+        spinner_override = as_dict(remote_data.get("spinnerTipsOverride")) or {}
+        spinner_tips = as_str_tuple(spinner_override.get("tips"))
+
         return SettingsBundle(
             user_settings_path=user_path if user_path.exists() else None,
             local_settings_path=local_path if local_path.exists() else None,
@@ -164,6 +170,8 @@ class LocalSource:
             permissions_ask=permissions_ask,
             enabled_plugins=enabled_plugins,
             policy_restrictions=MappingProxyType(policy_restrictions),
+            company_announcements=company_announcements,
+            spinner_tips=spinner_tips,
             hooks_raw=MappingProxyType(hooks_raw),
             hooks_dir_files=hooks_dir_files,
         )

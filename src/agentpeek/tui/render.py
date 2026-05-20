@@ -619,6 +619,16 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
             ),
         ),
         (
+            _count_item_label("Company announcements", len(s.company_announcements)),
+            _SettingsItem(
+                "Company announcements", "list", list(s.company_announcements)
+            ),
+        ),
+        (
+            _count_item_label("Spinner tips override", len(s.spinner_tips)),
+            _SettingsItem("Spinner tips override", "list", list(s.spinner_tips)),
+        ),
+        (
             _count_item_label("Hooks dir files", s.hooks_dir_files),
             _SettingsItem("Hooks dir files", "scalar", str(s.hooks_dir_files)),
         ),
