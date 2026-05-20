@@ -1096,11 +1096,13 @@ def _keybindings_detail_widgets(payload: object) -> list[Widget]:
 def _mcp_items(mcp: tuple[MCPServer, ...]) -> list[tuple[Content, object]]:
     items: list[tuple[Content, object]] = []
     for m in mcp:
-        label = Content.assemble(
+        parts: list[Content | str | tuple[str, str]] = [
             (m.name, "bold"),
-            (f"  ({m.command or '?'})", COLOR_MUTED),
-        )
-        items.append((_plug_prefix(label, m.source_plugin), m))
+            (f"  ({m.command or 'oauth'})", COLOR_MUTED),
+        ]
+        if m.auth_pending:
+            parts.extend(("  ", ("[auth pending]", f"bold {COLOR_WARNING}")))
+        items.append((_plug_prefix(Content.assemble(*parts), m.source_plugin), m))
     return items
 
 
@@ -1116,9 +1118,19 @@ def _mcp_detail_widgets(payload: object) -> list[Widget]:
     args = " ".join(payload.args) if payload.args else "(none)"
     rows: list[tuple[str, RenderableType]] = [
         ("Source", str(payload.source_path)),
-        ("Command", payload.command or _muted_cell("(none)")),
+        ("Command", payload.command or _muted_cell("(none — OAuth-based)")),
         ("Args", args),
     ]
+    if payload.auth_pending:
+        rows.append(
+            (
+                "Auth",
+                Text(
+                    "pending — Claude Code will not connect until OAuth completes",
+                    style="bold yellow",
+                ),
+            )
+        )
     widgets.append(_card("Properties", Static(_kv_table(rows))))
     title = f"Environment ({len(payload.env)})"
     if not payload.env:

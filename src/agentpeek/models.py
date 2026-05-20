@@ -166,6 +166,11 @@ class MCPServer:
     args: tuple[str, ...]
     env: Mapping[str, str]
     source_plugin: str | None = None
+    # True when this MCP server appears in
+    # `~/.claude/mcp-needs-auth-cache.json` — Claude Code remembers it
+    # but the OAuth/auth flow hasn't completed, so it won't actually
+    # connect until the user finishes auth.
+    auth_pending: bool = False
 
 
 @dataclass(frozen=True, slots=True)

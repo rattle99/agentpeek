@@ -410,6 +410,7 @@ class LocalSource:
         self, root: Path, warnings: list[ScanWarning]
     ) -> tuple[MCPServer, ...]:
         results: list[MCPServer] = []
+        seen_names: set[str] = set()
         for filename in ("settings.json", "remote-settings.json"):
             path = root / filename
             if not path.exists():
@@ -443,6 +444,33 @@ class LocalSource:
                         env=MappingProxyType(env_obj),
                     )
                 )
+                seen_names.add(str(srv_name))
+
+        # Surface OAuth-based MCP servers Claude Code registered into
+        # `mcp-needs-auth-cache.json`. These never appear in
+        # `mcpServers` because they're configured through the
+        # claude.ai UI, but they're real entries the user might want
+        # to know about — and they won't actually work until auth
+        # completes.
+        auth_cache_path = root / "mcp-needs-auth-cache.json"
+        if auth_cache_path.is_file():
+            data, warning = load_json(auth_cache_path, category="mcp")
+            if warning is not None:
+                warnings.append(warning)
+            if isinstance(data, dict):
+                for name in cast("dict[str, object]", data):
+                    if name in seen_names:
+                        continue
+                    results.append(
+                        MCPServer(
+                            name=str(name),
+                            source_path=auth_cache_path,
+                            command=None,
+                            args=(),
+                            env=MappingProxyType({}),
+                            auth_pending=True,
+                        )
+                    )
         return tuple(results)
 
 
