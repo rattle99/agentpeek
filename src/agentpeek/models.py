@@ -32,6 +32,11 @@ class SettingsBundle:
     # can see what their managed config injected into the session.
     company_announcements: tuple[str, ...]
     spinner_tips: tuple[str, ...]
+    # Relative paths inside `<root>/local/` — typically user-applied
+    # patches or scratch scripts that aren't Claude Code config but
+    # may shadow or modify the canonical hooks. Surfaced so the user
+    # can see what's there.
+    local_overrides: tuple[str, ...]
     env: Mapping[str, str]
     permissions_allow: tuple[str, ...]
     permissions_deny: tuple[str, ...]

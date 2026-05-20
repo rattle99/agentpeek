@@ -629,6 +629,10 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
             _SettingsItem("Spinner tips override", "list", list(s.spinner_tips)),
         ),
         (
+            _count_item_label("Local overrides", len(s.local_overrides)),
+            _SettingsItem("Local overrides", "list", list(s.local_overrides)),
+        ),
+        (
             _count_item_label("Hooks dir files", s.hooks_dir_files),
             _SettingsItem("Hooks dir files", "scalar", str(s.hooks_dir_files)),
         ),
