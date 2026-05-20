@@ -97,13 +97,13 @@ class LocalSource:
         if not user_path.exists() and not local_path.exists():
             return None
 
-        env_user = as_str_dict(user_data.get("env"))
-        env_local = as_str_dict(local_data.get("env"))
-        env = {**env_user, **env_local}
+        env = {
+            **as_str_dict(user_data.get("env")),
+            **as_str_dict(local_data.get("env")),
+        }
 
         # Per Claude Code docs, permission rules MERGE across scopes
-        # rather than override. Union allow/deny/ask from both files,
-        # preserving the order user-then-local with dedup.
+        # rather than override. Union allow/deny/ask from both files.
         user_perms = as_dict(user_data.get("permissions")) or {}
         local_perms = as_dict(local_data.get("permissions")) or {}
         permissions_allow = _union_str_tuple(
@@ -118,74 +118,23 @@ class LocalSource:
             as_str_tuple(user_perms.get("ask")),
             as_str_tuple(local_perms.get("ask")),
         )
-        # Same pattern in both allow and deny is a contradiction the
-        # user probably didn't mean — flag it. Claude Code's runtime
-        # resolution for this case isn't documented; we report what's
-        # in the files and let the user decide which one to remove.
-        for collision in sorted(set(permissions_allow) & set(permissions_deny)):
-            warnings.append(
-                ScanWarning(
-                    path=user_path if user_path.exists() else local_path,
-                    category="settings",
-                    reason=(
-                        f"permission rule {collision!r} appears in both "
-                        "allow and deny"
-                    ),
-                )
-            )
-
-        user_plugins = as_dict(user_data.get("enabledPlugins")) or {}
-        local_plugins = as_dict(local_data.get("enabledPlugins")) or {}
-        enabled_set: set[str] = set()
-        for k, v in {**user_plugins, **local_plugins}.items():
-            if bool(v):
-                enabled_set.add(str(k))
-        enabled_plugins = tuple(sorted(enabled_set))
-
-        # Union hooks across user + local settings (matches the
-        # permissions / enabledPlugins precedent — Claude Code stacks
-        # both). Entries from local follow entries from user within
-        # each event so the original ordering is preserved.
-        hooks_raw: dict[str, tuple[dict[str, object], ...]] = {}
-        merged_events: dict[str, list[dict[str, object]]] = {}
-        for source in (
-            as_dict(user_data.get("hooks")) or {},
-            as_dict(local_data.get("hooks")) or {},
-        ):
-            for event, entries in source.items():
-                if not isinstance(entries, list):
-                    continue
-                bucket = merged_events.setdefault(str(event), [])
-                for e in cast("list[object]", entries):
-                    if isinstance(e, dict):
-                        bucket.append(cast("dict[str, object]", e))
-        for event, bucket in merged_events.items():
-            hooks_raw[event] = tuple(bucket)
-
-        hooks_dir = root / "hooks"
-        hooks_dir_files: tuple[str, ...] = (
-            tuple(sorted(f.name for f in hooks_dir.iterdir() if f.is_file()))
-            if hooks_dir.is_dir()
-            else ()
+        _warn_permission_collisions(
+            permissions_allow,
+            permissions_deny,
+            path=user_path if user_path.exists() else local_path,
+            warnings=warnings,
         )
+
+        enabled_plugins = _merge_enabled_plugins(user_data, local_data)
+        hooks_raw = _merge_hooks_raw(user_data, local_data)
+        hooks_dir_files = _list_hooks_dir_files(root)
 
         # statusLine can be a dict ({"type": "command", "command": "..."})
         # or, legacy, a bare string. Local overrides user.
         status_line = _parse_status_line(local_data.get("statusLine")) or (
             _parse_status_line(user_data.get("statusLine"))
         )
-
-        # `in` rather than `or` — `or` short-circuits on False, so a
-        # project explicitly setting `skipAutoPermissionPrompt: false`
-        # would never override a user-level True. Use presence to
-        # distinguish "key absent" from "explicit False".
-        if "skipAutoPermissionPrompt" in local_data:
-            skip_prompt = bool(local_data["skipAutoPermissionPrompt"])
-        elif "skipAutoPermissionPrompt" in user_data:
-            skip_prompt = bool(user_data["skipAutoPermissionPrompt"])
-        else:
-            skip_prompt = False
-
+        skip_prompt = _resolve_skip_prompt(user_data, local_data)
         policy_restrictions = _load_policy_limits(root, warnings)
 
         company_announcements = as_str_tuple(remote_data.get("companyAnnouncements"))
@@ -292,10 +241,6 @@ class LocalSource:
                 # Frontmatter parse failed — fall back to raw text so the
                 # detail pane can still show what's in the file. The warning
                 # is already attached above.
-                try:
-                    raw_body = md_path.read_text(encoding="utf-8")
-                except OSError:
-                    raw_body = ""
                 results.append(
                     SlashCommand(
                         path=md_path,
@@ -303,7 +248,7 @@ class LocalSource:
                         description=None,
                         argument_hint=None,
                         allowed_tools=(),
-                        body=raw_body,
+                        body=_safe_read_text(md_path),
                     )
                 )
                 continue
@@ -652,6 +597,93 @@ def _union_str_tuple(*lists: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(seen)
 
 
+def _safe_read_text(path: Path) -> str:
+    """Read a text file, returning empty string on OSError."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _merge_enabled_plugins(
+    user_data: dict[str, object], local_data: dict[str, object]
+) -> tuple[str, ...]:
+    """Union enabledPlugins across user + local settings, keeping truthy keys."""
+    user_plugins = as_dict(user_data.get("enabledPlugins")) or {}
+    local_plugins = as_dict(local_data.get("enabledPlugins")) or {}
+    enabled: set[str] = set()
+    for k, v in {**user_plugins, **local_plugins}.items():
+        if bool(v):
+            enabled.add(str(k))
+    return tuple(sorted(enabled))
+
+
+def _merge_hooks_raw(
+    user_data: dict[str, object], local_data: dict[str, object]
+) -> dict[str, tuple[dict[str, object], ...]]:
+    """Union hook event entries across user + local. Entries from local
+    follow entries from user within each event so ordering is preserved.
+    """
+    merged_events: dict[str, list[dict[str, object]]] = {}
+    for source in (
+        as_dict(user_data.get("hooks")) or {},
+        as_dict(local_data.get("hooks")) or {},
+    ):
+        for event, entries in source.items():
+            if not isinstance(entries, list):
+                continue
+            bucket = merged_events.setdefault(str(event), [])
+            for entry in cast("list[object]", entries):
+                if isinstance(entry, dict):
+                    bucket.append(cast("dict[str, object]", entry))
+    return {event: tuple(bucket) for event, bucket in merged_events.items()}
+
+
+def _list_hooks_dir_files(root: Path) -> tuple[str, ...]:
+    hooks_dir = root / "hooks"
+    if not hooks_dir.is_dir():
+        return ()
+    return tuple(sorted(f.name for f in hooks_dir.iterdir() if f.is_file()))
+
+
+def _resolve_skip_prompt(
+    user_data: dict[str, object], local_data: dict[str, object]
+) -> bool:
+    """`in` rather than `or` — an explicit local `False` must override a
+    user `True`. `or` short-circuits on False and silently falls back.
+    """
+    if "skipAutoPermissionPrompt" in local_data:
+        return bool(local_data["skipAutoPermissionPrompt"])
+    if "skipAutoPermissionPrompt" in user_data:
+        return bool(user_data["skipAutoPermissionPrompt"])
+    return False
+
+
+def _warn_permission_collisions(
+    allow: tuple[str, ...],
+    deny: tuple[str, ...],
+    *,
+    path: Path,
+    warnings: list[ScanWarning],
+) -> None:
+    """Emit a warning per rule that appears in both allow and deny.
+
+    Claude Code's runtime resolution for this contradiction isn't
+    documented; we surface the conflict and let the user resolve it.
+    """
+    for collision in sorted(set(allow) & set(deny)):
+        warnings.append(
+            ScanWarning(
+                path=path,
+                category="settings",
+                reason=(
+                    f"permission rule {collision!r} appears in both "
+                    "allow and deny"
+                ),
+            )
+        )
+
+
 def _load_marketplaces(
     root: Path, warnings: list[ScanWarning]
 ) -> dict[str, dict[str, str]]:
@@ -784,8 +816,8 @@ def _load_blocklist(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
         if not isinstance(entry, dict):
             continue
         entry_d = cast("dict[str, object]", entry)
-        qid = as_str(entry_d.get("plugin"))
-        if not qid:
+        qualified_id = as_str(entry_d.get("plugin"))
+        if not qualified_id:
             continue
         reason = as_str(entry_d.get("reason"))
         text = as_str(entry_d.get("text"))
@@ -795,14 +827,14 @@ def _load_blocklist(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
                     path=path,
                     category="plugins",
                     reason=(
-                        f"blocklist entry for {qid} has both `reason` and "
+                        f"blocklist entry for {qualified_id} has both `reason` and "
                         f"`text` with different values; surfacing both"
                     ),
                 )
             )
-            out[qid] = f"{reason} (text: {text})"
+            out[qualified_id] = f"{reason} (text: {text})"
         else:
-            out[qid] = reason or text or ""
+            out[qualified_id] = reason or text or ""
     return out
 
 
@@ -813,28 +845,28 @@ def _collect_enabled_plugins(root: Path, warnings: list[ScanWarning]) -> set[str
     maps: dict[str, dict[str, object]] = {}
     for filename in ("settings.json", "settings.local.json", "remote-settings.json"):
         data = _safe_load_json_dict(root / filename, "plugins", warnings)
-        ep = as_dict(data.get("enabledPlugins"))
-        if ep is not None:
-            maps[filename] = ep
+        enabled_map = as_dict(data.get("enabledPlugins"))
+        if enabled_map is not None:
+            maps[filename] = enabled_map
 
-    # Note when two source files disagree on the same QID. Claude Code's
-    # observed runtime behavior unions enabledPlugins across these files
-    # (a plugin enabled in ANY file is loaded), so a disagreement isn't
-    # a misconfiguration — the warning text reflects that.
+    # Note when two source files disagree on the same qualified id.
+    # Claude Code's observed runtime behavior unions enabledPlugins
+    # across these files (a plugin enabled in ANY file is loaded), so
+    # a disagreement isn't a misconfiguration — the warning text reflects that.
     filenames = list(maps)
     for i, a in enumerate(filenames):
         for b in filenames[i + 1 :]:
-            for qid in set(maps[a]) & set(maps[b]):
-                if bool(maps[a][qid]) != bool(maps[b][qid]):
-                    effective = bool(maps[a][qid]) or bool(maps[b][qid])
+            for qualified_id in set(maps[a]) & set(maps[b]):
+                if bool(maps[a][qualified_id]) != bool(maps[b][qualified_id]):
+                    effective = bool(maps[a][qualified_id]) or bool(maps[b][qualified_id])
                     warnings.append(
                         ScanWarning(
                             path=None,
                             category="plugins",
                             reason=(
-                                f"plugin {qid} enabledPlugins value differs: "
-                                f"{a}={bool(maps[a][qid])}, "
-                                f"{b}={bool(maps[b][qid])}; "
+                                f"plugin {qualified_id} enabledPlugins value differs: "
+                                f"{a}={bool(maps[a][qualified_id])}, "
+                                f"{b}={bool(maps[b][qualified_id])}; "
                                 f"Claude Code unions across files, "
                                 f"effective={effective}"
                             ),
@@ -842,8 +874,8 @@ def _collect_enabled_plugins(root: Path, warnings: list[ScanWarning]) -> set[str
                     )
 
     merged: dict[str, object] = {}
-    for ep in maps.values():
-        merged.update(ep)
+    for enabled_map in maps.values():
+        merged.update(enabled_map)
     return {str(k) for k, v in merged.items() if bool(v)}
 
 
@@ -858,10 +890,7 @@ def _read_memory_file(
     if warning is not None:
         warnings.append(warning)
     if file is None:
-        try:
-            body = path.read_text(encoding="utf-8")
-        except OSError:
-            body = ""
+        body = _safe_read_text(path)
         has_fm = False
     else:
         body = file.body
