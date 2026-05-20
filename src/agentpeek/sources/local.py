@@ -396,25 +396,69 @@ class LocalSource:
         if warning is not None:
             warnings.append(warning)
         entries: list[KeybindingEntry] = []
-        if isinstance(data, dict):
-            data_d = cast("dict[str, object]", data)
-            bindings_outer = data_d.get("bindings")
-            if isinstance(bindings_outer, list):
-                for ctx_obj in cast("list[object]", bindings_outer):
-                    if not isinstance(ctx_obj, dict):
-                        continue
-                    ctx_d = cast("dict[str, object]", ctx_obj)
-                    context = as_str(ctx_d.get("context")) or ""
-                    inner = ctx_d.get("bindings")
-                    if isinstance(inner, dict):
-                        for key, action in cast("dict[str, object]", inner).items():
-                            entries.append(
-                                KeybindingEntry(
-                                    context=context,
-                                    key=str(key),
-                                    action=str(action),
-                                )
-                            )
+        if not isinstance(data, dict):
+            warnings.append(
+                ScanWarning(
+                    path=path,
+                    category="keybindings",
+                    reason="top-level value is not a JSON object",
+                )
+            )
+            return KeybindingsBundle(path=path, entries=())
+        data_d = cast("dict[str, object]", data)
+        bindings_outer = data_d.get("bindings")
+        if bindings_outer is None:
+            return KeybindingsBundle(path=path, entries=())
+        if not isinstance(bindings_outer, list):
+            warnings.append(
+                ScanWarning(
+                    path=path,
+                    category="keybindings",
+                    reason=(
+                        f"`bindings` is {type(bindings_outer).__name__}, "
+                        "expected an array of contexts"
+                    ),
+                )
+            )
+            return KeybindingsBundle(path=path, entries=())
+        for i, ctx_obj in enumerate(cast("list[object]", bindings_outer)):
+            if not isinstance(ctx_obj, dict):
+                warnings.append(
+                    ScanWarning(
+                        path=path,
+                        category="keybindings",
+                        reason=(
+                            f"`bindings[{i}]` is "
+                            f"{type(ctx_obj).__name__}, expected an object"
+                        ),
+                    )
+                )
+                continue
+            ctx_d = cast("dict[str, object]", ctx_obj)
+            context = as_str(ctx_d.get("context")) or ""
+            inner = ctx_d.get("bindings")
+            if inner is None:
+                continue
+            if not isinstance(inner, dict):
+                warnings.append(
+                    ScanWarning(
+                        path=path,
+                        category="keybindings",
+                        reason=(
+                            f"`bindings[{i}].bindings` is "
+                            f"{type(inner).__name__}, expected an object"
+                        ),
+                    )
+                )
+                continue
+            for key, action in cast("dict[str, object]", inner).items():
+                entries.append(
+                    KeybindingEntry(
+                        context=context,
+                        key=str(key),
+                        action=str(action),
+                    )
+                )
         return KeybindingsBundle(path=path, entries=tuple(entries))
 
     def _scan_mcp(
