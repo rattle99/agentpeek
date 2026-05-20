@@ -821,6 +821,18 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
         ("ID", payload.id),
         ("Marketplace", payload.marketplace or _muted_cell("(none)")),
     ]
+    src = payload.marketplace_source
+    if src:
+        source_kind = src.get("source", "")
+        repo = src.get("repo", "")
+        ref = src.get("ref", "")
+        if source_kind and repo:
+            source_line = f"{source_kind}:{repo}" + (f"@{ref}" if ref else "")
+            rows.append(("Source", source_line))
+        if src.get("installLocation"):
+            rows.append(("Cached at", src["installLocation"]))
+        if src.get("lastUpdated"):
+            rows.append(("Marketplace updated", src["lastUpdated"]))
     if payload.blocked:
         rows.append(
             (

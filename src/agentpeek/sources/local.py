@@ -286,6 +286,7 @@ class LocalSource:
 
         enabled_union = _collect_enabled_plugins(root, warnings)
         blocklist = _load_blocklist(root, warnings)
+        marketplaces = _load_marketplaces(root, warnings)
 
         results: list[Plugin] = []
         for qid, installs_obj in cast("dict[str, object]", plugins_obj).items():
@@ -323,6 +324,9 @@ class LocalSource:
                     mcps=contents.mcps if contents else (),
                     blocked=qid_str in blocklist,
                     blocked_reason=blocklist.get(qid_str),
+                    marketplace_source=MappingProxyType(
+                        marketplaces.get(marketplace, {})
+                    ),
                 )
             )
         return tuple(results)
@@ -505,6 +509,61 @@ def _safe_load_json_dict(
     if isinstance(data, dict):
         return cast("dict[str, object]", data)
     return {}
+
+
+def _load_marketplaces(
+    root: Path, warnings: list[ScanWarning]
+) -> dict[str, dict[str, str]]:
+    """Return {marketplace_name: source_dict} from all known registries.
+
+    Sources, in increasing precedence (later wins on conflict):
+    1. `<root>/plugins/known_marketplaces.json` — Claude Code's
+       authoritative cache; its `source` block is what's cloned.
+    2. `extraKnownMarketplaces` in settings.json — user-declared.
+    3. `extraKnownMarketplaces` in remote-settings.json — enterprise.
+
+    Each source_dict carries flattened `source.*` keys plus optional
+    `installLocation` / `lastUpdated` from the registry file.
+    """
+    out: dict[str, dict[str, str]] = {}
+
+    registry_path = root / "plugins" / "known_marketplaces.json"
+    if registry_path.is_file():
+        data, warning = load_json(registry_path, category="plugins")
+        if warning is not None:
+            warnings.append(warning)
+        if isinstance(data, dict):
+            for name, entry in cast("dict[str, object]", data).items():
+                if isinstance(entry, dict):
+                    out[str(name)] = _flatten_marketplace(
+                        cast("dict[str, object]", entry)
+                    )
+
+    for filename in ("settings.json", "remote-settings.json"):
+        data = _safe_load_json_dict(root / filename, "plugins", warnings)
+        extra = as_dict(data.get("extraKnownMarketplaces"))
+        if not extra:
+            continue
+        for name, entry in extra.items():
+            if isinstance(entry, dict):
+                flat = _flatten_marketplace(cast("dict[str, object]", entry))
+                out.setdefault(str(name), {}).update(flat)
+
+    return out
+
+
+def _flatten_marketplace(entry: dict[str, object]) -> dict[str, str]:
+    flat: dict[str, str] = {}
+    src = entry.get("source")
+    if isinstance(src, dict):
+        for k, v in cast("dict[str, object]", src).items():
+            if isinstance(v, str):
+                flat[str(k)] = v
+    for k in ("installLocation", "lastUpdated"):
+        v = entry.get(k)
+        if isinstance(v, str):
+            flat[k] = v
+    return flat
 
 
 def _parse_status_line(v: object) -> Mapping[str, str] | None:

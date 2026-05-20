@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal
 
 
@@ -125,6 +126,11 @@ class Plugin:
     # plugin regardless of settings.
     blocked: bool = False
     blocked_reason: str | None = None
+    # Where this plugin's marketplace lives — resolved from
+    # `~/.claude/plugins/known_marketplaces.json` and the
+    # `extraKnownMarketplaces` keys of user + remote settings. Empty
+    # mapping when the marketplace isn't found in any registry.
+    marketplace_source: Mapping[str, str] = MappingProxyType({})
 
 
 MemoryKind = Literal["claude_md", "memory_index", "memory_entry"]
