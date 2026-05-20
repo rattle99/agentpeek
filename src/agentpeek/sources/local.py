@@ -114,6 +114,21 @@ class LocalSource:
             as_str_tuple(user_perms.get("ask")),
             as_str_tuple(local_perms.get("ask")),
         )
+        # Same pattern in both allow and deny is a contradiction the
+        # user probably didn't mean — flag it. Claude Code's runtime
+        # resolution for this case isn't documented; we report what's
+        # in the files and let the user decide which one to remove.
+        for collision in sorted(set(permissions_allow) & set(permissions_deny)):
+            warnings.append(
+                ScanWarning(
+                    path=user_path if user_path.exists() else local_path,
+                    category="settings",
+                    reason=(
+                        f"permission rule {collision!r} appears in both "
+                        "allow and deny"
+                    ),
+                )
+            )
 
         user_plugins = as_dict(user_data.get("enabledPlugins")) or {}
         local_plugins = as_dict(local_data.get("enabledPlugins")) or {}
@@ -123,19 +138,31 @@ class LocalSource:
                 enabled_set.add(str(k))
         enabled_plugins = tuple(sorted(enabled_set))
 
-        hooks_raw_dict = as_dict(user_data.get("hooks")) or {}
+        # Union hooks across user + local settings (matches the
+        # permissions / enabledPlugins precedent — Claude Code stacks
+        # both). Entries from local follow entries from user within
+        # each event so the original ordering is preserved.
         hooks_raw: dict[str, tuple[dict[str, object], ...]] = {}
-        for event, entries in hooks_raw_dict.items():
-            if isinstance(entries, list):
-                event_entries: list[dict[str, object]] = []
+        merged_events: dict[str, list[dict[str, object]]] = {}
+        for source in (
+            as_dict(user_data.get("hooks")) or {},
+            as_dict(local_data.get("hooks")) or {},
+        ):
+            for event, entries in source.items():
+                if not isinstance(entries, list):
+                    continue
+                bucket = merged_events.setdefault(str(event), [])
                 for e in cast("list[object]", entries):
                     if isinstance(e, dict):
-                        event_entries.append(cast("dict[str, object]", e))
-                hooks_raw[str(event)] = tuple(event_entries)
+                        bucket.append(cast("dict[str, object]", e))
+        for event, bucket in merged_events.items():
+            hooks_raw[event] = tuple(bucket)
 
         hooks_dir = root / "hooks"
-        hooks_dir_files = (
-            sum(1 for _ in hooks_dir.iterdir()) if hooks_dir.is_dir() else 0
+        hooks_dir_files: tuple[str, ...] = (
+            tuple(sorted(f.name for f in hooks_dir.iterdir() if f.is_file()))
+            if hooks_dir.is_dir()
+            else ()
         )
 
         # statusLine can be a dict ({"type": "command", "command": "..."})
@@ -144,18 +171,22 @@ class LocalSource:
             _parse_status_line(user_data.get("statusLine"))
         )
 
-        skip_prompt = bool(
-            local_data.get("skipAutoPermissionPrompt")
-            or user_data.get("skipAutoPermissionPrompt")
-        )
+        # `in` rather than `or` — `or` short-circuits on False, so a
+        # project explicitly setting `skipAutoPermissionPrompt: false`
+        # would never override a user-level True. Use presence to
+        # distinguish "key absent" from "explicit False".
+        if "skipAutoPermissionPrompt" in local_data:
+            skip_prompt = bool(local_data["skipAutoPermissionPrompt"])
+        elif "skipAutoPermissionPrompt" in user_data:
+            skip_prompt = bool(user_data["skipAutoPermissionPrompt"])
+        else:
+            skip_prompt = False
 
         policy_restrictions = _load_policy_limits(root, warnings)
 
         company_announcements = as_str_tuple(remote_data.get("companyAnnouncements"))
         spinner_override = as_dict(remote_data.get("spinnerTipsOverride")) or {}
         spinner_tips = as_str_tuple(spinner_override.get("tips"))
-
-        local_overrides = _scan_local_overrides(root)
 
         return SettingsBundle(
             user_settings_path=user_path if user_path.exists() else None,
@@ -175,7 +206,6 @@ class LocalSource:
             policy_restrictions=MappingProxyType(policy_restrictions),
             company_announcements=company_announcements,
             spinner_tips=spinner_tips,
-            local_overrides=local_overrides,
             hooks_raw=MappingProxyType(hooks_raw),
             hooks_dir_files=hooks_dir_files,
         )
@@ -679,31 +709,14 @@ def _flatten_marketplace(entry: dict[str, object]) -> dict[str, str]:
     return flat
 
 
-def _scan_local_overrides(root: Path) -> tuple[str, ...]:
-    """Return relative paths of every file under `<root>/local/`.
+def _load_policy_limits(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
+    """Return {restriction_name: formatted-string} from
+    `<root>/policy-limits.json`.
 
-    Claude Code itself doesn't define a `local/` directory — it's a
-    user convention for staging patches or scratch scripts. We list
-    what's there so users see what's adjacent to their config; we
-    make no claim about what these files do.
-    """
-    local_dir = root / "local"
-    if not local_dir.is_dir():
-        return ()
-    paths: list[str] = []
-    for f in sorted(local_dir.rglob("*")):
-        if f.is_file():
-            try:
-                paths.append(str(f.relative_to(local_dir)))
-            except ValueError:
-                continue
-    return tuple(paths)
-
-
-def _load_policy_limits(root: Path, warnings: list[ScanWarning]) -> dict[str, bool]:
-    """Return {restriction_name: allowed} from `<root>/policy-limits.json`.
-
-    Empty dict when the file is absent (typical for project scope).
+    The string includes both the allowed bool and any `message` /
+    `text` field the enterprise admin attached. Format:
+    `"allowed"` / `"denied"` / `"denied — <message>"` etc.
+    Empty dict when the file is absent.
     """
     path = root / "policy-limits.json"
     if not path.is_file():
@@ -716,12 +729,17 @@ def _load_policy_limits(root: Path, warnings: list[ScanWarning]) -> dict[str, bo
     restrictions = cast("dict[str, object]", data).get("restrictions")
     if not isinstance(restrictions, dict):
         return {}
-    out: dict[str, bool] = {}
+    out: dict[str, str] = {}
     for name, entry in cast("dict[str, object]", restrictions).items():
-        if isinstance(entry, dict):
-            allowed = cast("dict[str, object]", entry).get("allowed")
-            if isinstance(allowed, bool):
-                out[str(name)] = allowed
+        if not isinstance(entry, dict):
+            continue
+        entry_d = cast("dict[str, object]", entry)
+        allowed = entry_d.get("allowed")
+        verdict = (
+            "allowed" if allowed is True else "denied" if allowed is False else "?"
+        )
+        message = as_str(entry_d.get("message")) or as_str(entry_d.get("text"))
+        out[str(name)] = f"{verdict} — {message}" if message else verdict
     return out
 
 
@@ -729,7 +747,10 @@ def _parse_status_line(v: object) -> Mapping[str, str] | None:
     """Normalize statusLine to a {type, command, ...} dict, or None.
 
     Accepts dict-shaped configs (modern) and bare strings (legacy form
-    where the entire value is the shell command).
+    where the entire value is the shell command). Non-string dict
+    values (e.g. `padding: 1`, `refreshInterval: 30`) are coerced to
+    str rather than dropped — they're real config the user wrote and
+    inspecting them in agentpeek shouldn't silently lose them.
     """
     if isinstance(v, str):
         return MappingProxyType({"type": "command", "command": v})
@@ -737,7 +758,6 @@ def _parse_status_line(v: object) -> Mapping[str, str] | None:
         d = {
             str(k): str(val)
             for k, val in cast("dict[str, object]", v).items()
-            if isinstance(val, str)
         }
         return MappingProxyType(d) if d else None
     return None
@@ -769,8 +789,22 @@ def _load_blocklist(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
         qid = as_str(entry_d.get("plugin"))
         if not qid:
             continue
-        reason = as_str(entry_d.get("reason")) or as_str(entry_d.get("text")) or ""
-        out[qid] = reason
+        reason = as_str(entry_d.get("reason"))
+        text = as_str(entry_d.get("text"))
+        if reason and text and reason != text:
+            warnings.append(
+                ScanWarning(
+                    path=path,
+                    category="plugins",
+                    reason=(
+                        f"blocklist entry for {qid} has both `reason` and "
+                        f"`text` with different values; surfacing both"
+                    ),
+                )
+            )
+            out[qid] = f"{reason} (text: {text})"
+        else:
+            out[qid] = reason or text or ""
     return out
 
 

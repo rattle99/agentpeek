@@ -16,6 +16,7 @@ Returned `SlashCommand` / `HookSpec` / `MCPServer` instances carry
 `source_plugin = qualified_id` for provenance.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -114,6 +115,22 @@ def _parse_manifest(
         if isinstance(keywords_raw, list)
         else ()
     )
+    requires_raw = d.get("requires")
+    requires: tuple[str, ...] = (
+        tuple(s for s in cast("list[object]", requires_raw) if isinstance(s, str))
+        if isinstance(requires_raw, list)
+        else ()
+    )
+    # `repository` accepts either a bare URL string or a dict like
+    # {"type": "git", "url": "..."}. Normalize to the URL.
+    repository_raw = d.get("repository")
+    repository: str | None = None
+    if isinstance(repository_raw, str):
+        repository = repository_raw
+    elif isinstance(repository_raw, dict):
+        repository = as_str(
+            cast("dict[str, object]", repository_raw).get("url")
+        )
     manifest = PluginManifest(
         description=as_str(d.get("description")),
         version=as_str(d.get("version")),
@@ -122,6 +139,9 @@ def _parse_manifest(
         homepage=as_str(d.get("homepage")),
         license=as_str(d.get("license")),
         keywords=keywords,
+        name=as_str(d.get("name")),
+        repository=repository,
+        requires=requires,
     )
     return d, manifest
 
@@ -160,6 +180,19 @@ def _parse_skills(
                 ),
                 body=file.body,
                 source_plugin=qualified_id,
+                when_to_use=read_str_field(
+                    file.metadata, "when_to_use",
+                    path=skill_md, category="plugin_skill", warnings=warnings,
+                ),
+                user_invocable=_as_optional_bool(file.metadata.get("user-invocable")),
+                allowed_tools=_split_csv_field(
+                    file.metadata, "allowed-tools",
+                    path=skill_md, category="plugin_skill", warnings=warnings,
+                ),
+                disallowed_tools=_split_csv_field(
+                    file.metadata, "disallowed-tools",
+                    path=skill_md, category="plugin_skill", warnings=warnings,
+                ),
             )
         )
     return tuple(results)
@@ -191,9 +224,44 @@ def _parse_agents(
                 ),
                 body=file.body,
                 source_plugin=qualified_id,
+                when_to_use=read_str_field(
+                    file.metadata, "when_to_use",
+                    path=md, category="plugin_agent", warnings=warnings,
+                ),
+                user_invocable=_as_optional_bool(file.metadata.get("user-invocable")),
+                allowed_tools=_split_csv_field(
+                    file.metadata, "allowed-tools",
+                    path=md, category="plugin_agent", warnings=warnings,
+                ),
+                disallowed_tools=_split_csv_field(
+                    file.metadata, "disallowed-tools",
+                    path=md, category="plugin_agent", warnings=warnings,
+                ),
             )
         )
     return tuple(results)
+
+
+def _as_optional_bool(v: object) -> bool | None:
+    if isinstance(v, bool):
+        return v
+    return None
+
+
+def _split_csv_field(
+    metadata: Mapping[str, object],
+    key: str,
+    *,
+    path: Path,
+    category: str,
+    warnings: list[ScanWarning],
+) -> tuple[str, ...]:
+    raw = read_str_field(
+        metadata, key, path=path, category=category, warnings=warnings
+    )
+    if not raw:
+        return ()
+    return tuple(s.strip() for s in raw.split(",") if s.strip())
 
 
 # --- Slash commands ------------------------------------------------------

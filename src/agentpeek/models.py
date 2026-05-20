@@ -26,24 +26,23 @@ class SettingsBundle:
     status_line: Mapping[str, str] | None
     skip_auto_permission_prompt: bool
     # `policy-limits.json` from this scope, flattened to
-    # {restriction_name: allowed_bool}. Empty when the file is absent.
-    policy_restrictions: Mapping[str, bool]
+    # {restriction_name: "allowed" / "denied" / "denied — <message>"}.
+    # Empty when the file is absent.
+    policy_restrictions: Mapping[str, str]
     # Enterprise-pushed remote-settings.json extras. Surfaced so users
     # can see what their managed config injected into the session.
     company_announcements: tuple[str, ...]
     spinner_tips: tuple[str, ...]
-    # Relative paths inside `<root>/local/` — typically user-applied
-    # patches or scratch scripts that aren't Claude Code config but
-    # may shadow or modify the canonical hooks. Surfaced so the user
-    # can see what's there.
-    local_overrides: tuple[str, ...]
     env: Mapping[str, str]
     permissions_allow: tuple[str, ...]
     permissions_deny: tuple[str, ...]
     permissions_ask: tuple[str, ...]
     enabled_plugins: tuple[str, ...]
     hooks_raw: Mapping[str, tuple[Mapping[str, object], ...]]
-    hooks_dir_files: int
+    # Filenames (relative to `<root>/hooks/`) present on disk —
+    # surfaced as a list so users can see actual script names without
+    # opening the filesystem.
+    hooks_dir_files: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +95,17 @@ class PluginManifest:
     homepage: str | None
     license: str | None
     keywords: tuple[str, ...] = ()
+    # Declared name (`name` in plugin.json) — may differ from the
+    # install directory name. Surfaced so a renamed/forked plugin
+    # is recognizable.
+    name: str | None = None
+    # Upstream source repo URL. Accepts both bare-string form
+    # ("https://github.com/...") and the dict form ({"type": "git",
+    # "url": "..."}); normalized to a URL string here.
+    repository: str | None = None
+    # `requires` from plugin.json — qualified ids of plugins this
+    # plugin depends on. Empty when not declared.
+    requires: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +115,17 @@ class PluginSkill:
     description: str | None
     body: str
     source_plugin: str | None = None
+    # `when_to_use` — trigger guidance shown to Claude Code so it
+    # knows when to auto-load this skill. Often more descriptive
+    # than `description`; surfaced here so users can see the
+    # activation contract.
+    when_to_use: str | None = None
+    # True/False if `user-invocable` is set in frontmatter; None
+    # when the field is absent (defaults vary).
+    user_invocable: bool | None = None
+    # Comma-separated tool allow/deny lists from frontmatter.
+    allowed_tools: tuple[str, ...] = ()
+    disallowed_tools: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +135,10 @@ class PluginAgent:
     description: str | None
     body: str
     source_plugin: str | None = None
+    when_to_use: str | None = None
+    user_invocable: bool | None = None
+    allowed_tools: tuple[str, ...] = ()
+    disallowed_tools: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

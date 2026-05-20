@@ -41,6 +41,23 @@ class SkillDetailModal(ModalScreen[None]):
                 )
             if s.description:
                 yield Static(s.description, id="skill-modal-desc")
+            meta_lines: list[str] = []
+            if s.when_to_use:
+                meta_lines.append(f"**When to use:** {s.when_to_use}")
+            if s.user_invocable is not None:
+                meta_lines.append(
+                    f"**User-invocable:** {'yes' if s.user_invocable else 'no'}"
+                )
+            if s.allowed_tools:
+                meta_lines.append(
+                    f"**Allowed tools:** {', '.join(s.allowed_tools)}"
+                )
+            if s.disallowed_tools:
+                meta_lines.append(
+                    f"**Disallowed tools:** {', '.join(s.disallowed_tools)}"
+                )
+            if meta_lines:
+                yield Static("\n\n".join(meta_lines), id="skill-modal-meta")
             with VerticalScroll(id="skill-modal-body"):
                 yield Markdown(s.body or "_(empty)_")
 
