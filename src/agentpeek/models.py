@@ -25,6 +25,9 @@ class SettingsBundle:
     # legacy string; normalized to dict shape (or None when absent).
     status_line: Mapping[str, str] | None
     skip_auto_permission_prompt: bool
+    # `policy-limits.json` from this scope, flattened to
+    # {restriction_name: allowed_bool}. Empty when the file is absent.
+    policy_restrictions: Mapping[str, bool]
     env: Mapping[str, str]
     permissions_allow: tuple[str, ...]
     permissions_deny: tuple[str, ...]

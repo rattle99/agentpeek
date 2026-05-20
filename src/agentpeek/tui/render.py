@@ -611,6 +611,14 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
             _SettingsItem("Enabled plugins", "list", list(s.enabled_plugins)),
         ),
         (
+            _count_item_label("Policy restrictions", len(s.policy_restrictions)),
+            _SettingsItem(
+                "Policy restrictions",
+                "dict",
+                {k: str(v) for k, v in s.policy_restrictions.items()},
+            ),
+        ),
+        (
             _count_item_label("Hooks dir files", s.hooks_dir_files),
             _SettingsItem("Hooks dir files", "scalar", str(s.hooks_dir_files)),
         ),

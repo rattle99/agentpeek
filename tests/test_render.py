@@ -280,6 +280,7 @@ def test_item_body_settings_returns_none() -> None:
         permissions_deny=(),
         permissions_ask=(),
         enabled_plugins=(),
+        policy_restrictions={},
         hooks_raw={},
         hooks_dir_files=0,
     )

@@ -146,6 +146,8 @@ class LocalSource:
             or user_data.get("skipAutoPermissionPrompt")
         )
 
+        policy_restrictions = _load_policy_limits(root, warnings)
+
         return SettingsBundle(
             user_settings_path=user_path if user_path.exists() else None,
             local_settings_path=local_path if local_path.exists() else None,
@@ -161,6 +163,7 @@ class LocalSource:
             permissions_deny=permissions_deny,
             permissions_ask=permissions_ask,
             enabled_plugins=enabled_plugins,
+            policy_restrictions=MappingProxyType(policy_restrictions),
             hooks_raw=MappingProxyType(hooks_raw),
             hooks_dir_files=hooks_dir_files,
         )
@@ -609,6 +612,31 @@ def _flatten_marketplace(entry: dict[str, object]) -> dict[str, str]:
         if isinstance(v, str):
             flat[k] = v
     return flat
+
+
+def _load_policy_limits(root: Path, warnings: list[ScanWarning]) -> dict[str, bool]:
+    """Return {restriction_name: allowed} from `<root>/policy-limits.json`.
+
+    Empty dict when the file is absent (typical for project scope).
+    """
+    path = root / "policy-limits.json"
+    if not path.is_file():
+        return {}
+    data, warning = load_json(path, category="settings")
+    if warning is not None:
+        warnings.append(warning)
+    if not isinstance(data, dict):
+        return {}
+    restrictions = cast("dict[str, object]", data).get("restrictions")
+    if not isinstance(restrictions, dict):
+        return {}
+    out: dict[str, bool] = {}
+    for name, entry in cast("dict[str, object]", restrictions).items():
+        if isinstance(entry, dict):
+            allowed = cast("dict[str, object]", entry).get("allowed")
+            if isinstance(allowed, bool):
+                out[str(name)] = allowed
+    return out
 
 
 def _parse_status_line(v: object) -> Mapping[str, str] | None:
