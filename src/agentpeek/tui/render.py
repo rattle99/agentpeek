@@ -166,6 +166,20 @@ def _kv_table(rows: Iterable[tuple[str, RenderableType]]) -> Table:
     return table
 
 
+def _detail_header(content: str | Content, *, color: str = COLOR_PRIMARY) -> Static:
+    """Standard detail-pane title widget. Strings are bolded in `color`;
+    pre-built Content passes through so multi-span titles still work.
+    """
+    if isinstance(content, str):
+        content = _styled(content, f"bold {color}")
+    return Static(content, classes="detail-header")
+
+
+def _empty_state(noun: str) -> list[Widget]:
+    """Placeholder for a detail pane when nothing is selected."""
+    return [Static(f"(no {noun} selected)", classes="muted")]
+
+
 class _PendingDataTable(DataTable[str]):
     """A DataTable whose columns and rows are buffered at construction
     time and added on mount.
@@ -650,10 +664,8 @@ def _count_item_label(name: str, count: int) -> Content:
 
 def _settings_detail_widgets(payload: object) -> list[Widget]:
     if not isinstance(payload, _SettingsItem):
-        return [Static("(no setting selected)", classes="muted")]
-    header = Static(
-        _styled(payload.label, f"bold {COLOR_PRIMARY}"), classes="detail-header"
-    )
+        return _empty_state("setting")
+    header = _detail_header(payload.label)
     body = _settings_body(payload)
     if payload.kind in ("dict", "list"):
         return [header, _card("Items", body)]
@@ -666,31 +678,32 @@ def _settings_body(payload: _SettingsItem) -> Widget:
             return Static(str(payload.value))
         return Static("—", classes="muted")
     if payload.kind == "dict" and isinstance(payload.value, dict):
-        return _dict_body(cast("dict[str, object]", payload.value))  # pyright: ignore[reportUnknownMemberType]
+        return _collection_body(cast("dict[str, object]", payload.value), keyed=True)  # pyright: ignore[reportUnknownMemberType]
     if payload.kind == "list" and isinstance(payload.value, list):
-        return _list_body(cast("list[object]", payload.value))  # pyright: ignore[reportUnknownMemberType]
+        return _collection_body(cast("list[object]", payload.value), keyed=False)  # pyright: ignore[reportUnknownMemberType]
     return Static("(unsupported)")
 
 
-def _dict_body(d: dict[str, object]) -> Widget:
-    if not d:
+def _collection_body(value: dict[str, object] | list[object], *, keyed: bool) -> Widget:
+    """Render a settings dict or list as a 2-column grid.
+
+    `keyed=True` produces a name→value mapping (keys bold, sorted); False
+    produces an enumerated list (1-based index, dim right-aligned).
+    """
+    if not value:
         return Static("(empty)", classes="muted")
     t = Table.grid(padding=(0, 2))
-    t.add_column(style="bold")
-    t.add_column(overflow="fold")
-    for k in sorted(d.keys()):
-        t.add_row(k, str(d[k]))
-    return Static(t)
-
-
-def _list_body(lst: list[object]) -> Widget:
-    if not lst:
-        return Static("(empty)", classes="muted")
-    t = Table.grid(padding=(0, 2))
-    t.add_column(style="dim", justify="right")
-    t.add_column(overflow="fold")
-    for i, v in enumerate(lst, 1):
-        t.add_row(str(i), str(v))
+    if keyed:
+        t.add_column(style="bold")
+        t.add_column(overflow="fold")
+        d = cast("dict[str, object]", value)
+        for k in sorted(d.keys()):
+            t.add_row(k, str(d[k]))
+    else:
+        t.add_column(style="dim", justify="right")
+        t.add_column(overflow="fold")
+        for i, v in enumerate(cast("list[object]", value), 1):
+            t.add_row(str(i), str(v))
     return Static(t)
 
 
@@ -720,7 +733,7 @@ def _hooks_items(hooks: tuple[HookSpec, ...]) -> list[tuple[Content, object]]:
 
 def _hooks_detail_widgets(payload: object) -> list[Widget]:
     if not isinstance(payload, HookSpec):
-        return [Static("(no hook selected)", classes="muted")]
+        return _empty_state("hook")
     rows: list[tuple[str, RenderableType]] = [
         ("Event", Text(payload.event, style="bold")),
         (
@@ -788,7 +801,7 @@ def _commands_items(commands: tuple[SlashCommand, ...]) -> list[tuple[Content, o
 
 def _commands_detail_widgets(payload: object) -> list[Widget]:
     if not isinstance(payload, SlashCommand):
-        return [Static("(no command selected)", classes="muted")]
+        return _empty_state("command")
     if payload.description:
         header_content = Content.assemble(
             (f"/{payload.name}", f"bold {COLOR_PRIMARY}"),
@@ -797,7 +810,7 @@ def _commands_detail_widgets(payload: object) -> list[Widget]:
         )
     else:
         header_content = _styled(f"/{payload.name}", f"bold {COLOR_PRIMARY}")
-    widgets: list[Widget] = [Static(header_content, classes="detail-header")]
+    widgets: list[Widget] = [_detail_header(header_content)]
     tools = ", ".join(payload.allowed_tools) if payload.allowed_tools else "—"
     rows: list[tuple[str, RenderableType]] = [
         ("Path", str(payload.path)),
@@ -835,7 +848,7 @@ def _plugins_items(plugins: tuple[Plugin, ...]) -> list[tuple[Content, object]]:
 
 def _plugins_detail_widgets(payload: object) -> list[Widget]:
     if not isinstance(payload, Plugin):
-        return [Static("(no plugin selected)", classes="muted")]
+        return _empty_state("plugin")
     badge = (
         _badge("enabled", "success") if payload.enabled else _badge("disabled", "muted")
     )
@@ -844,7 +857,7 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
         "  ",
         badge,
     )
-    widgets: list[Widget] = [Static(header_content, classes="detail-header")]
+    widgets: list[Widget] = [_detail_header(header_content)]
     rows: list[tuple[str, RenderableType]] = [
         ("ID", payload.id),
         ("Marketplace", payload.marketplace or _muted_cell("—")),
@@ -1019,9 +1032,8 @@ def _skills_items(plugins: tuple[Plugin, ...]) -> list[tuple[Content, object]]:
 
 def _skills_detail_widgets(payload: object) -> list[Widget]:
     if not isinstance(payload, PluginSkill):
-        return [Static("(no skill selected)", classes="muted")]
-    header = Content.assemble((payload.name, f"bold {COLOR_PRIMARY}"))
-    widgets: list[Widget] = [Static(header, classes="detail-header")]
+        return _empty_state("skill")
+    widgets: list[Widget] = [_detail_header(payload.name)]
     rows: list[tuple[str, RenderableType]] = [
         (
             "Source plugin",
@@ -1076,7 +1088,7 @@ def _memory_items(memory: tuple[MemoryFile, ...]) -> list[tuple[Content, object]
 
 def _memory_detail_widgets(payload: object) -> list[Widget]:
     if not isinstance(payload, MemoryFile):
-        return [Static("(no memory file selected)", classes="muted")]
+        return _empty_state("memory file")
     kind_label = _MEMORY_KIND_LABEL.get(payload.kind, payload.kind)
     parts: list[Content | str | tuple[str, str]] = [
         (kind_label, f"bold {COLOR_PRIMARY}"),
@@ -1085,9 +1097,7 @@ def _memory_detail_widgets(payload: object) -> list[Widget]:
     ]
     if payload.has_frontmatter:
         parts.extend(("  ", _badge("+fm", "info")))
-    widgets: list[Widget] = [
-        Static(Content.assemble(*parts), classes="detail-header"),
-    ]
+    widgets: list[Widget] = [_detail_header(Content.assemble(*parts))]
     rows: list[tuple[str, RenderableType]] = [
         (
             "Project",
@@ -1123,7 +1133,7 @@ def _keybindings_items(
 
 def _keybindings_detail_widgets(payload: object) -> list[Widget]:
     if not isinstance(payload, KeybindingEntry):
-        return [Static("(no binding selected)", classes="muted")]
+        return _empty_state("binding")
     rows: list[tuple[str, RenderableType]] = [
         ("Context", payload.context),
         ("Key", Text(payload.key, style="bold")),
@@ -1150,13 +1160,8 @@ def _mcp_items(mcp: tuple[MCPServer, ...]) -> list[tuple[Content, object]]:
 
 def _mcp_detail_widgets(payload: object) -> list[Widget]:
     if not isinstance(payload, MCPServer):
-        return [Static("(no MCP server selected)", classes="muted")]
-    widgets: list[Widget] = [
-        Static(
-            _styled(payload.name, f"bold {COLOR_PRIMARY}"),
-            classes="detail-header",
-        )
-    ]
+        return _empty_state("MCP server")
+    widgets: list[Widget] = [_detail_header(payload.name)]
     args = " ".join(payload.args) if payload.args else "—"
     rows: list[tuple[str, RenderableType]] = [
         ("Source", str(payload.source_path)),
@@ -1227,15 +1232,10 @@ def _warnings_items(
 
 def _warnings_detail_widgets(payload: object) -> list[Widget]:
     if not isinstance(payload, ScanWarning):
-        return [Static("(no warning selected)", classes="muted")]
+        return _empty_state("warning")
     sev = warning_severity(payload.category)
     color = _SEVERITY_COLOR[sev]
-    widgets: list[Widget] = [
-        Static(
-            _styled(payload.category, f"bold {color}"),
-            classes="detail-header",
-        )
-    ]
+    widgets: list[Widget] = [_detail_header(payload.category, color=color)]
     if payload.path:
         widgets.append(Static(_styled(str(payload.path), COLOR_MUTED)))
     widgets.append(_card("Reason", Static(payload.reason), severity=sev))
