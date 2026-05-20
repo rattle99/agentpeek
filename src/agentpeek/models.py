@@ -116,6 +116,11 @@ class Plugin:
     commands: tuple[SlashCommand, ...] = ()
     hooks: tuple[HookSpec, ...] = ()
     mcps: tuple["MCPServer", ...] = ()
+    # `~/.claude/plugins/blocklist.json` entries override any
+    # `enabled=True` claim — Claude Code refuses to load a blocklisted
+    # plugin regardless of settings.
+    blocked: bool = False
+    blocked_reason: str | None = None
 
 
 MemoryKind = Literal["claude_md", "memory_index", "memory_entry"]

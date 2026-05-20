@@ -271,6 +271,7 @@ class LocalSource:
             return ()
 
         enabled_union = _collect_enabled_plugins(root, warnings)
+        blocklist = _load_blocklist(root, warnings)
 
         results: list[Plugin] = []
         for qid, installs_obj in cast("dict[str, object]", plugins_obj).items():
@@ -306,6 +307,8 @@ class LocalSource:
                     commands=contents.commands if contents else (),
                     hooks=contents.hooks if contents else (),
                     mcps=contents.mcps if contents else (),
+                    blocked=qid_str in blocklist,
+                    blocked_reason=blocklist.get(qid_str),
                 )
             )
         return tuple(results)
@@ -488,6 +491,37 @@ def _safe_load_json_dict(
     if isinstance(data, dict):
         return cast("dict[str, object]", data)
     return {}
+
+
+def _load_blocklist(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
+    """Return {qualified_id: reason} for plugins in `plugins/blocklist.json`.
+
+    Claude Code refuses to load any plugin in this file regardless of
+    enabledPlugins. The blocklist only lives at user scope; at project
+    scope the file is absent and we return {}.
+    """
+    path = root / "plugins" / "blocklist.json"
+    if not path.exists():
+        return {}
+    data, warning = load_json(path, category="plugins")
+    if warning is not None:
+        warnings.append(warning)
+    if not isinstance(data, dict):
+        return {}
+    entries = cast("dict[str, object]", data).get("plugins")
+    if not isinstance(entries, list):
+        return {}
+    out: dict[str, str] = {}
+    for entry in cast("list[object]", entries):
+        if not isinstance(entry, dict):
+            continue
+        entry_d = cast("dict[str, object]", entry)
+        qid = as_str(entry_d.get("plugin"))
+        if not qid:
+            continue
+        reason = as_str(entry_d.get("reason")) or as_str(entry_d.get("text")) or ""
+        out[qid] = reason
+    return out
 
 
 def _collect_enabled_plugins(root: Path, warnings: list[ScanWarning]) -> set[str]:

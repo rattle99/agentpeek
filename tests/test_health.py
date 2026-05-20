@@ -168,6 +168,43 @@ def test_mixed_user_and_other_project_installs_still_warns(
     assert len(not_enabled) == 1
 
 
+def test_blocklisted_plugin_enabled_fires_warning(tmp_path: Path) -> None:
+    installed = tmp_path / "alpha"
+    installed.mkdir()
+    p = Plugin(
+        id="alpha",
+        marketplace="m",
+        qualified_id="alpha@m",
+        enabled=True,
+        installations=(_install(installed),),
+        blocked=True,
+        blocked_reason="security",
+    )
+    issues = _check_plugin_state(_result((p,), root=tmp_path / ".claude"))
+    blocklisted = [i for i in issues if "blocklist" in i.reason]
+    assert len(blocklisted) == 1
+    assert "security" in blocklisted[0].reason
+
+
+def test_blocklisted_but_disabled_no_warning(tmp_path: Path) -> None:
+    installed = tmp_path / "alpha"
+    installed.mkdir()
+    p = Plugin(
+        id="alpha",
+        marketplace="m",
+        qualified_id="alpha@m",
+        enabled=False,
+        installations=(_install(installed),),
+        blocked=True,
+        blocked_reason="security",
+    )
+    issues = _check_plugin_state(_result((p,), root=tmp_path / ".claude"))
+    # Not enabled → blocklist doesn't matter to Claude Code runtime;
+    # don't warn. (The "not enabled" warning may still fire for the
+    # installation existing, but no "blocklist" warning.)
+    assert not any("blocklist" in i.reason for i in issues)
+
+
 def test_healthy_plugin_no_warnings(tmp_path: Path) -> None:
     installed = tmp_path / "ok-plugin"
     installed.mkdir()

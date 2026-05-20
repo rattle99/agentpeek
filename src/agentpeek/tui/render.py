@@ -774,13 +774,15 @@ def _plugins_items(plugins: tuple[Plugin, ...]) -> list[tuple[Content, object]]:
         state_text, state_color = (
             ("enabled", COLOR_SUCCESS) if p.enabled else ("disabled", COLOR_MUTED)
         )
-        label = Content.assemble(
+        parts: list[Content | str | tuple[str, str]] = [
             (p.qualified_id, "bold"),
             "  ",
             (state_text, state_color),
             (f"  [{len(p.installations)} install(s)]", COLOR_MUTED),
-        )
-        items.append((label, p))
+        ]
+        if p.blocked:
+            parts.extend(("  ", ("[BLOCKED]", f"bold {COLOR_ERROR}")))
+        items.append((Content.assemble(*parts), p))
     return items
 
 
@@ -800,6 +802,16 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
         ("ID", payload.id),
         ("Marketplace", payload.marketplace or _muted_cell("(none)")),
     ]
+    if payload.blocked:
+        rows.append(
+            (
+                "Blocklisted",
+                Text(
+                    payload.blocked_reason or "(no reason given)",
+                    style="bold red",
+                ),
+            )
+        )
     widgets.append(_card("Properties", Static(_kv_table(rows))))
     if payload.manifest is not None:
         widgets.append(_card("Manifest", Static(_manifest_table(payload.manifest))))
