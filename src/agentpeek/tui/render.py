@@ -1144,9 +1144,15 @@ def _mcp_detail_widgets(payload: object) -> list[Widget]:
     args = " ".join(payload.args) if payload.args else "(none)"
     rows: list[tuple[str, RenderableType]] = [
         ("Source", str(payload.source_path)),
-        ("Command", payload.command or _muted_cell("(none — OAuth-based)")),
-        ("Args", args),
     ]
+    if payload.source_plugin:
+        rows.append(("Source plugin", payload.source_plugin))
+    rows.extend(
+        [
+            ("Command", payload.command or _muted_cell("(none — OAuth-based)")),
+            ("Args", args),
+        ]
+    )
     if payload.auth_pending:
         rows.append(
             (
