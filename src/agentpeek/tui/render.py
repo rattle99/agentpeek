@@ -1124,14 +1124,22 @@ def _mcp_detail_widgets(payload: object) -> list[Widget]:
     if not payload.env:
         widgets.append(_card(title, Static("(no env vars)", classes="muted")))
     else:
+        # `redact()` only masks values of length ≥ 8 — short values like
+        # "true" / "on" pass through. Surface that contract honestly
+        # instead of labelling the column "redacted" when some rows
+        # aren't.
         env_rows: tuple[tuple[str, ...], ...] = tuple(
             (k, redact(payload.env[k])) for k in sorted(payload.env.keys())
         )
         widgets.append(
             _card(
                 title,
-                _PendingDataTable(
-                    columns=("Key", "Value (redacted)"), rows=env_rows
+                Container(
+                    _PendingDataTable(columns=("Key", "Value"), rows=env_rows),
+                    Static(
+                        "(values ≥ 8 chars are masked)",
+                        classes="muted",
+                    ),
                 ),
             )
         )
