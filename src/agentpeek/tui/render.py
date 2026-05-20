@@ -666,7 +666,7 @@ def _settings_body(payload: _SettingsItem) -> Widget:
     if payload.kind == "scalar":
         if payload.value:
             return Static(str(payload.value))
-        return Static("(unset)", classes="muted")
+        return Static("—", classes="muted")
     if payload.kind == "dict" and isinstance(payload.value, dict):
         return _dict_body(cast("dict[str, object]", payload.value))  # pyright: ignore[reportUnknownMemberType]
     if payload.kind == "list" and isinstance(payload.value, list):
@@ -800,12 +800,12 @@ def _commands_detail_widgets(payload: object) -> list[Widget]:
     else:
         header_content = _styled(f"/{payload.name}", f"bold {COLOR_PRIMARY}")
     widgets: list[Widget] = [Static(header_content, classes="detail-header")]
-    tools = ", ".join(payload.allowed_tools) if payload.allowed_tools else "(none)"
+    tools = ", ".join(payload.allowed_tools) if payload.allowed_tools else "—"
     rows: list[tuple[str, RenderableType]] = [
         ("Path", str(payload.path)),
         (
             "Argument hint",
-            payload.argument_hint or _muted_cell("(none)"),
+            payload.argument_hint or _muted_cell("—"),
         ),
         ("Allowed tools", tools),
     ]
@@ -849,7 +849,7 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
     widgets: list[Widget] = [Static(header_content, classes="detail-header")]
     rows: list[tuple[str, RenderableType]] = [
         ("ID", payload.id),
-        ("Marketplace", payload.marketplace or _muted_cell("(none)")),
+        ("Marketplace", payload.marketplace or _muted_cell("—")),
     ]
     src = payload.marketplace_source
     if src:
@@ -1025,7 +1025,7 @@ def _skills_detail_widgets(payload: object) -> list[Widget]:
         ),
         (
             "Description",
-            payload.description or _muted_cell("(none)"),
+            payload.description or _muted_cell("—"),
         ),
         ("Path", str(payload.path)),
     ]
@@ -1145,7 +1145,7 @@ def _mcp_detail_widgets(payload: object) -> list[Widget]:
             classes="detail-header",
         )
     ]
-    args = " ".join(payload.args) if payload.args else "(none)"
+    args = " ".join(payload.args) if payload.args else "—"
     rows: list[tuple[str, RenderableType]] = [
         ("Source", str(payload.source_path)),
     ]
@@ -1170,7 +1170,7 @@ def _mcp_detail_widgets(payload: object) -> list[Widget]:
     widgets.append(_card("Properties", Static(_kv_table(rows))))
     title = f"Environment ({len(payload.env)})"
     if not payload.env:
-        widgets.append(_card(title, Static("(no env vars)", classes="muted")))
+        widgets.append(_card(title, Static("(empty)", classes="muted")))
     else:
         # `redact()` only masks values of length ≥ 8 — short values like
         # "true" / "on" pass through. Surface that contract honestly
