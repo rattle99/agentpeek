@@ -751,20 +751,26 @@ def _collect_enabled_plugins(root: Path, warnings: list[ScanWarning]) -> set[str
         if ep is not None:
             maps[filename] = ep
 
-    # Warn when two source files disagree on the same QID.
+    # Note when two source files disagree on the same QID. Claude Code's
+    # observed runtime behavior unions enabledPlugins across these files
+    # (a plugin enabled in ANY file is loaded), so a disagreement isn't
+    # a misconfiguration — the warning text reflects that.
     filenames = list(maps)
     for i, a in enumerate(filenames):
         for b in filenames[i + 1 :]:
             for qid in set(maps[a]) & set(maps[b]):
                 if bool(maps[a][qid]) != bool(maps[b][qid]):
+                    effective = bool(maps[a][qid]) or bool(maps[b][qid])
                     warnings.append(
                         ScanWarning(
                             path=None,
                             category="plugins",
                             reason=(
-                                f"enabledPlugins conflict for {qid}: "
+                                f"plugin {qid} enabledPlugins value differs: "
                                 f"{a}={bool(maps[a][qid])}, "
-                                f"{b}={bool(maps[b][qid])}"
+                                f"{b}={bool(maps[b][qid])}; "
+                                f"Claude Code unions across files, "
+                                f"effective={effective}"
                             ),
                         )
                     )
