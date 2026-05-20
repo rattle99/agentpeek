@@ -342,8 +342,23 @@ def _parse_mcps(
                 else ()
             )
             env_obj = as_str_dict(srv_d.get("env"))
-            seen[str(srv_name)] = MCPServer(
-                name=str(srv_name),
+            name_str = str(srv_name)
+            prior = seen.get(name_str)
+            if prior is not None and prior.source_path != source_path:
+                warnings.append(
+                    ScanWarning(
+                        path=source_path,
+                        category="plugin_mcp",
+                        reason=(
+                            f"MCP server {name_str!r} for plugin "
+                            f"{qualified_id} is defined in both "
+                            f"{prior.source_path} and {source_path}; "
+                            f"{source_path.name} takes precedence"
+                        ),
+                    )
+                )
+            seen[name_str] = MCPServer(
+                name=name_str,
                 source_path=source_path,
                 command=as_str(srv_d.get("command")),
                 args=args_tuple,
