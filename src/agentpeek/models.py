@@ -20,6 +20,10 @@ class SettingsBundle:
     editor_mode: str | None
     effort_level: str | None
     output_style: str | None
+    # `statusLine` is either {"type": "command", "command": "..."} or a
+    # legacy string; normalized to dict shape (or None when absent).
+    status_line: Mapping[str, str] | None
+    skip_auto_permission_prompt: bool
     env: Mapping[str, str]
     permissions_allow: tuple[str, ...]
     permissions_deny: tuple[str, ...]

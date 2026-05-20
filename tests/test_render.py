@@ -273,6 +273,8 @@ def test_item_body_settings_returns_none() -> None:
         editor_mode=None,
         effort_level=None,
         output_style=None,
+        status_line=None,
+        skip_auto_permission_prompt=False,
         env={},
         permissions_allow=(),
         permissions_deny=(),

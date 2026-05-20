@@ -572,6 +572,25 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
             _SettingsItem("Output style", "scalar", s.output_style),
         ),
         (
+            _scalar_label(
+                "Skip auto permission prompt",
+                "yes" if s.skip_auto_permission_prompt else None,
+            ),
+            _SettingsItem(
+                "Skip auto permission prompt",
+                "scalar",
+                "yes" if s.skip_auto_permission_prompt else None,
+            ),
+        ),
+        (
+            _count_item_label(
+                "Status line", 1 if s.status_line else 0
+            ),
+            _SettingsItem(
+                "Status line", "dict", dict(s.status_line) if s.status_line else {}
+            ),
+        ),
+        (
             _count_item_label("Env vars", len(s.env)),
             _SettingsItem("Env vars", "dict", dict(s.env)),
         ),

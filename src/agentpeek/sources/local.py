@@ -2,6 +2,7 @@ import functools
 import json
 import re
 import shlex
+from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 from typing import ClassVar, cast
@@ -127,6 +128,17 @@ class LocalSource:
             sum(1 for _ in hooks_dir.iterdir()) if hooks_dir.is_dir() else 0
         )
 
+        # statusLine can be a dict ({"type": "command", "command": "..."})
+        # or, legacy, a bare string. Local overrides user.
+        status_line = _parse_status_line(local_data.get("statusLine")) or (
+            _parse_status_line(user_data.get("statusLine"))
+        )
+
+        skip_prompt = bool(
+            local_data.get("skipAutoPermissionPrompt")
+            or user_data.get("skipAutoPermissionPrompt")
+        )
+
         return SettingsBundle(
             user_settings_path=user_path if user_path.exists() else None,
             local_settings_path=local_path if local_path.exists() else None,
@@ -135,6 +147,8 @@ class LocalSource:
             editor_mode=as_str(user_data.get("editorMode")),
             effort_level=as_str(user_data.get("effortLevel")),
             output_style=as_str(user_data.get("outputStyle")),
+            status_line=status_line,
+            skip_auto_permission_prompt=skip_prompt,
             env=MappingProxyType(env),
             permissions_allow=permissions_allow,
             permissions_deny=permissions_deny,
@@ -491,6 +505,24 @@ def _safe_load_json_dict(
     if isinstance(data, dict):
         return cast("dict[str, object]", data)
     return {}
+
+
+def _parse_status_line(v: object) -> Mapping[str, str] | None:
+    """Normalize statusLine to a {type, command, ...} dict, or None.
+
+    Accepts dict-shaped configs (modern) and bare strings (legacy form
+    where the entire value is the shell command).
+    """
+    if isinstance(v, str):
+        return MappingProxyType({"type": "command", "command": v})
+    if isinstance(v, dict):
+        d = {
+            str(k): str(val)
+            for k, val in cast("dict[str, object]", v).items()
+            if isinstance(val, str)
+        }
+        return MappingProxyType(d) if d else None
+    return None
 
 
 def _load_blocklist(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
