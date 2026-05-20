@@ -15,6 +15,40 @@ class FrontmatterFile:
     body: str
 
 
+def read_str_field(
+    metadata: Mapping[str, object],
+    key: str,
+    *,
+    path: Path,
+    category: str,
+    warnings: list[ScanWarning],
+) -> str | None:
+    """Read a string-typed frontmatter field; warn if present but
+    not a string.
+
+    Falling back to the directory/file name without warning hides
+    misconfiguration — the user typed `name: ["foo"]` and gets a
+    different name than they expect with no explanation. Returns
+    None when the key is absent or the value isn't a string.
+    """
+    v = metadata.get(key)
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v
+    warnings.append(
+        ScanWarning(
+            path=path,
+            category=category,
+            reason=(
+                f"frontmatter `{key}` is {type(v).__name__}, "
+                "expected string; ignored"
+            ),
+        )
+    )
+    return None
+
+
 def load_frontmatter(
     path: Path, *, category: str
 ) -> tuple[FrontmatterFile | None, ScanWarning | None]:

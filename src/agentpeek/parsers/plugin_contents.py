@@ -32,6 +32,7 @@ from agentpeek.models import (
 )
 from agentpeek.parsers import load_frontmatter, load_json
 from agentpeek.parsers.coerce import as_int, as_str, as_str_dict
+from agentpeek.parsers.frontmatter_parser import read_str_field
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,11 +146,18 @@ def _parse_skills(
             warnings.append(warning)
         if file is None:
             continue
+        name = read_str_field(
+            file.metadata, "name",
+            path=skill_md, category="plugin_skill", warnings=warnings,
+        )
         results.append(
             PluginSkill(
                 path=skill_md,
-                name=as_str(file.metadata.get("name")) or sub.name,
-                description=as_str(file.metadata.get("description")),
+                name=name or sub.name,
+                description=read_str_field(
+                    file.metadata, "description",
+                    path=skill_md, category="plugin_skill", warnings=warnings,
+                ),
                 body=file.body,
                 source_plugin=qualified_id,
             )
@@ -169,11 +177,18 @@ def _parse_agents(
             warnings.append(warning)
         if file is None:
             continue
+        name = read_str_field(
+            file.metadata, "name",
+            path=md, category="plugin_agent", warnings=warnings,
+        )
         results.append(
             PluginAgent(
                 path=md,
-                name=as_str(file.metadata.get("name")) or md.stem,
-                description=as_str(file.metadata.get("description")),
+                name=name or md.stem,
+                description=read_str_field(
+                    file.metadata, "description",
+                    path=md, category="plugin_agent", warnings=warnings,
+                ),
                 body=file.body,
                 source_plugin=qualified_id,
             )
@@ -215,7 +230,10 @@ def _parse_commands(
                 )
             )
             continue
-        allowed = as_str(file.metadata.get("allowed-tools"))
+        allowed = read_str_field(
+            file.metadata, "allowed-tools",
+            path=md, category="plugin_command", warnings=warnings,
+        )
         allowed_tuple: tuple[str, ...] = (
             tuple(s.strip() for s in allowed.split(",") if s.strip())
             if allowed
@@ -225,8 +243,14 @@ def _parse_commands(
             SlashCommand(
                 path=md,
                 name=name,
-                description=as_str(file.metadata.get("description")),
-                argument_hint=as_str(file.metadata.get("argument-hint")),
+                description=read_str_field(
+                    file.metadata, "description",
+                    path=md, category="plugin_command", warnings=warnings,
+                ),
+                argument_hint=read_str_field(
+                    file.metadata, "argument-hint",
+                    path=md, category="plugin_command", warnings=warnings,
+                ),
                 allowed_tools=allowed_tuple,
                 body=file.body,
                 source_plugin=qualified_id,

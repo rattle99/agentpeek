@@ -29,6 +29,7 @@ from agentpeek.parsers.coerce import (
     as_str_dict,
     as_str_tuple,
 )
+from agentpeek.parsers.frontmatter_parser import read_str_field
 from agentpeek.parsers.plugin_contents import parse_plugin_contents
 
 
@@ -269,7 +270,10 @@ class LocalSource:
                     )
                 )
                 continue
-            allowed = as_str(file.metadata.get("allowed-tools"))
+            allowed = read_str_field(
+                file.metadata, "allowed-tools",
+                path=md_path, category="commands", warnings=warnings,
+            )
             allowed_tuple: tuple[str, ...] = (
                 tuple(s.strip() for s in allowed.split(",") if s.strip())
                 if allowed
@@ -279,8 +283,14 @@ class LocalSource:
                 SlashCommand(
                     path=md_path,
                     name=name,
-                    description=as_str(file.metadata.get("description")),
-                    argument_hint=as_str(file.metadata.get("argument-hint")),
+                    description=read_str_field(
+                        file.metadata, "description",
+                        path=md_path, category="commands", warnings=warnings,
+                    ),
+                    argument_hint=read_str_field(
+                        file.metadata, "argument-hint",
+                        path=md_path, category="commands", warnings=warnings,
+                    ),
                     allowed_tools=allowed_tuple,
                     body=file.body,
                 )
