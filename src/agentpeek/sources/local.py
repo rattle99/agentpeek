@@ -114,6 +114,21 @@ class LocalSource:
             as_str_tuple(user_perms.get("ask")),
             as_str_tuple(local_perms.get("ask")),
         )
+        # Same pattern in both allow and deny is a contradiction the
+        # user probably didn't mean — flag it. Claude Code's runtime
+        # resolution for this case isn't documented; we report what's
+        # in the files and let the user decide which one to remove.
+        for collision in sorted(set(permissions_allow) & set(permissions_deny)):
+            warnings.append(
+                ScanWarning(
+                    path=user_path if user_path.exists() else local_path,
+                    category="settings",
+                    reason=(
+                        f"permission rule {collision!r} appears in both "
+                        "allow and deny"
+                    ),
+                )
+            )
 
         user_plugins = as_dict(user_data.get("enabledPlugins")) or {}
         local_plugins = as_dict(local_data.get("enabledPlugins")) or {}
@@ -123,15 +138,25 @@ class LocalSource:
                 enabled_set.add(str(k))
         enabled_plugins = tuple(sorted(enabled_set))
 
-        hooks_raw_dict = as_dict(user_data.get("hooks")) or {}
+        # Union hooks across user + local settings (matches the
+        # permissions / enabledPlugins precedent — Claude Code stacks
+        # both). Entries from local follow entries from user within
+        # each event so the original ordering is preserved.
         hooks_raw: dict[str, tuple[dict[str, object], ...]] = {}
-        for event, entries in hooks_raw_dict.items():
-            if isinstance(entries, list):
-                event_entries: list[dict[str, object]] = []
+        merged_events: dict[str, list[dict[str, object]]] = {}
+        for source in (
+            as_dict(user_data.get("hooks")) or {},
+            as_dict(local_data.get("hooks")) or {},
+        ):
+            for event, entries in source.items():
+                if not isinstance(entries, list):
+                    continue
+                bucket = merged_events.setdefault(str(event), [])
                 for e in cast("list[object]", entries):
                     if isinstance(e, dict):
-                        event_entries.append(cast("dict[str, object]", e))
-                hooks_raw[str(event)] = tuple(event_entries)
+                        bucket.append(cast("dict[str, object]", e))
+        for event, bucket in merged_events.items():
+            hooks_raw[event] = tuple(bucket)
 
         hooks_dir = root / "hooks"
         hooks_dir_files = (
@@ -144,10 +169,16 @@ class LocalSource:
             _parse_status_line(user_data.get("statusLine"))
         )
 
-        skip_prompt = bool(
-            local_data.get("skipAutoPermissionPrompt")
-            or user_data.get("skipAutoPermissionPrompt")
-        )
+        # `in` rather than `or` — `or` short-circuits on False, so a
+        # project explicitly setting `skipAutoPermissionPrompt: false`
+        # would never override a user-level True. Use presence to
+        # distinguish "key absent" from "explicit False".
+        if "skipAutoPermissionPrompt" in local_data:
+            skip_prompt = bool(local_data["skipAutoPermissionPrompt"])
+        elif "skipAutoPermissionPrompt" in user_data:
+            skip_prompt = bool(user_data["skipAutoPermissionPrompt"])
+        else:
+            skip_prompt = False
 
         policy_restrictions = _load_policy_limits(root, warnings)
 
@@ -729,7 +760,10 @@ def _parse_status_line(v: object) -> Mapping[str, str] | None:
     """Normalize statusLine to a {type, command, ...} dict, or None.
 
     Accepts dict-shaped configs (modern) and bare strings (legacy form
-    where the entire value is the shell command).
+    where the entire value is the shell command). Non-string dict
+    values (e.g. `padding: 1`, `refreshInterval: 30`) are coerced to
+    str rather than dropped — they're real config the user wrote and
+    inspecting them in agentpeek shouldn't silently lose them.
     """
     if isinstance(v, str):
         return MappingProxyType({"type": "command", "command": v})
@@ -737,7 +771,6 @@ def _parse_status_line(v: object) -> Mapping[str, str] | None:
         d = {
             str(k): str(val)
             for k, val in cast("dict[str, object]", v).items()
-            if isinstance(val, str)
         }
         return MappingProxyType(d) if d else None
     return None
