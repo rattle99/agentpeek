@@ -695,14 +695,22 @@ def _list_body(lst: list[object]) -> Widget:
 # --- Hooks --------------------------------------------------------------
 
 
+_PREVIEW_TRUNC_MARK = " […]"
+
+
+def _truncate_preview(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + _PREVIEW_TRUNC_MARK
+
+
 def _hooks_items(hooks: tuple[HookSpec, ...]) -> list[tuple[Content, object]]:
     items: list[tuple[Content, object]] = []
     for h in hooks:
-        preview = h.command[:40] + ("…" if len(h.command) > 40 else "")
         label = Content.assemble(
             (h.event, "bold"),
             (f"  [{h.matcher or '*'}]  ", COLOR_MUTED),
-            preview,
+            _truncate_preview(h.command, 40),
         )
         items.append((_plug_prefix(label, h.source_plugin), h))
     return items
@@ -940,7 +948,7 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
                         (
                             h.event,
                             h.matcher or "*",
-                            h.command[:60] + ("…" if len(h.command) > 60 else ""),
+                            _truncate_preview(h.command, 60),
                         )
                         for h in payload.hooks
                     ),
@@ -1186,7 +1194,7 @@ def _warnings_items(
     for w in warnings:
         sev = warning_severity(w.category)
         color = _SEVERITY_COLOR[sev]
-        preview = w.reason[:60] + ("…" if len(w.reason) > 60 else "")
+        preview = _truncate_preview(w.reason, 60)
         label = Content.assemble(
             (f"[{w.category}] ", f"bold {color}"),
             preview,
