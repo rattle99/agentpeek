@@ -2,6 +2,7 @@ import functools
 import json
 import re
 import shlex
+from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 from typing import ClassVar, cast
@@ -28,6 +29,7 @@ from agentpeek.parsers.coerce import (
     as_str_dict,
     as_str_tuple,
 )
+from agentpeek.parsers.frontmatter_parser import read_str_field
 from agentpeek.parsers.plugin_contents import parse_plugin_contents
 
 
@@ -82,9 +84,11 @@ class LocalSource:
     ) -> SettingsBundle | None:
         user_path = root / "settings.json"
         local_path = root / "settings.local.json"
+        remote_path = root / "remote-settings.json"
 
         user_data = _safe_load_json_dict(user_path, "settings", warnings)
         local_data = _safe_load_json_dict(local_path, "settings", warnings)
+        remote_data = _safe_load_json_dict(remote_path, "settings", warnings)
 
         if not user_path.exists() and not local_path.exists():
             return None
@@ -93,16 +97,23 @@ class LocalSource:
         env_local = as_str_dict(local_data.get("env"))
         env = {**env_user, **env_local}
 
-        permissions = as_dict(local_data.get("permissions")) or as_dict(
-            user_data.get("permissions")
+        # Per Claude Code docs, permission rules MERGE across scopes
+        # rather than override. Union allow/deny/ask from both files,
+        # preserving the order user-then-local with dedup.
+        user_perms = as_dict(user_data.get("permissions")) or {}
+        local_perms = as_dict(local_data.get("permissions")) or {}
+        permissions_allow = _union_str_tuple(
+            as_str_tuple(user_perms.get("allow")),
+            as_str_tuple(local_perms.get("allow")),
         )
-        permissions_allow = as_str_tuple(
-            permissions.get("allow") if permissions else None
+        permissions_deny = _union_str_tuple(
+            as_str_tuple(user_perms.get("deny")),
+            as_str_tuple(local_perms.get("deny")),
         )
-        permissions_deny = as_str_tuple(
-            permissions.get("deny") if permissions else None
+        permissions_ask = _union_str_tuple(
+            as_str_tuple(user_perms.get("ask")),
+            as_str_tuple(local_perms.get("ask")),
         )
-        permissions_ask = as_str_tuple(permissions.get("ask") if permissions else None)
 
         user_plugins = as_dict(user_data.get("enabledPlugins")) or {}
         local_plugins = as_dict(local_data.get("enabledPlugins")) or {}
@@ -127,6 +138,25 @@ class LocalSource:
             sum(1 for _ in hooks_dir.iterdir()) if hooks_dir.is_dir() else 0
         )
 
+        # statusLine can be a dict ({"type": "command", "command": "..."})
+        # or, legacy, a bare string. Local overrides user.
+        status_line = _parse_status_line(local_data.get("statusLine")) or (
+            _parse_status_line(user_data.get("statusLine"))
+        )
+
+        skip_prompt = bool(
+            local_data.get("skipAutoPermissionPrompt")
+            or user_data.get("skipAutoPermissionPrompt")
+        )
+
+        policy_restrictions = _load_policy_limits(root, warnings)
+
+        company_announcements = as_str_tuple(remote_data.get("companyAnnouncements"))
+        spinner_override = as_dict(remote_data.get("spinnerTipsOverride")) or {}
+        spinner_tips = as_str_tuple(spinner_override.get("tips"))
+
+        local_overrides = _scan_local_overrides(root)
+
         return SettingsBundle(
             user_settings_path=user_path if user_path.exists() else None,
             local_settings_path=local_path if local_path.exists() else None,
@@ -135,11 +165,17 @@ class LocalSource:
             editor_mode=as_str(user_data.get("editorMode")),
             effort_level=as_str(user_data.get("effortLevel")),
             output_style=as_str(user_data.get("outputStyle")),
+            status_line=status_line,
+            skip_auto_permission_prompt=skip_prompt,
             env=MappingProxyType(env),
             permissions_allow=permissions_allow,
             permissions_deny=permissions_deny,
             permissions_ask=permissions_ask,
             enabled_plugins=enabled_plugins,
+            policy_restrictions=MappingProxyType(policy_restrictions),
+            company_announcements=company_announcements,
+            spinner_tips=spinner_tips,
+            local_overrides=local_overrides,
             hooks_raw=MappingProxyType(hooks_raw),
             hooks_dir_files=hooks_dir_files,
         )
@@ -237,7 +273,10 @@ class LocalSource:
                     )
                 )
                 continue
-            allowed = as_str(file.metadata.get("allowed-tools"))
+            allowed = read_str_field(
+                file.metadata, "allowed-tools",
+                path=md_path, category="commands", warnings=warnings,
+            )
             allowed_tuple: tuple[str, ...] = (
                 tuple(s.strip() for s in allowed.split(",") if s.strip())
                 if allowed
@@ -247,8 +286,14 @@ class LocalSource:
                 SlashCommand(
                     path=md_path,
                     name=name,
-                    description=as_str(file.metadata.get("description")),
-                    argument_hint=as_str(file.metadata.get("argument-hint")),
+                    description=read_str_field(
+                        file.metadata, "description",
+                        path=md_path, category="commands", warnings=warnings,
+                    ),
+                    argument_hint=read_str_field(
+                        file.metadata, "argument-hint",
+                        path=md_path, category="commands", warnings=warnings,
+                    ),
                     allowed_tools=allowed_tuple,
                     body=file.body,
                 )
@@ -271,6 +316,8 @@ class LocalSource:
             return ()
 
         enabled_union = _collect_enabled_plugins(root, warnings)
+        blocklist = _load_blocklist(root, warnings)
+        marketplaces = _load_marketplaces(root, warnings)
 
         results: list[Plugin] = []
         for qid, installs_obj in cast("dict[str, object]", plugins_obj).items():
@@ -306,6 +353,11 @@ class LocalSource:
                     commands=contents.commands if contents else (),
                     hooks=contents.hooks if contents else (),
                     mcps=contents.mcps if contents else (),
+                    blocked=qid_str in blocklist,
+                    blocked_reason=blocklist.get(qid_str),
+                    marketplace_source=MappingProxyType(
+                        marketplaces.get(marketplace, {})
+                    ),
                 )
             )
         return tuple(results)
@@ -357,31 +409,76 @@ class LocalSource:
         if warning is not None:
             warnings.append(warning)
         entries: list[KeybindingEntry] = []
-        if isinstance(data, dict):
-            data_d = cast("dict[str, object]", data)
-            bindings_outer = data_d.get("bindings")
-            if isinstance(bindings_outer, list):
-                for ctx_obj in cast("list[object]", bindings_outer):
-                    if not isinstance(ctx_obj, dict):
-                        continue
-                    ctx_d = cast("dict[str, object]", ctx_obj)
-                    context = as_str(ctx_d.get("context")) or ""
-                    inner = ctx_d.get("bindings")
-                    if isinstance(inner, dict):
-                        for key, action in cast("dict[str, object]", inner).items():
-                            entries.append(
-                                KeybindingEntry(
-                                    context=context,
-                                    key=str(key),
-                                    action=str(action),
-                                )
-                            )
+        if not isinstance(data, dict):
+            warnings.append(
+                ScanWarning(
+                    path=path,
+                    category="keybindings",
+                    reason="top-level value is not a JSON object",
+                )
+            )
+            return KeybindingsBundle(path=path, entries=())
+        data_d = cast("dict[str, object]", data)
+        bindings_outer = data_d.get("bindings")
+        if bindings_outer is None:
+            return KeybindingsBundle(path=path, entries=())
+        if not isinstance(bindings_outer, list):
+            warnings.append(
+                ScanWarning(
+                    path=path,
+                    category="keybindings",
+                    reason=(
+                        f"`bindings` is {type(bindings_outer).__name__}, "
+                        "expected an array of contexts"
+                    ),
+                )
+            )
+            return KeybindingsBundle(path=path, entries=())
+        for i, ctx_obj in enumerate(cast("list[object]", bindings_outer)):
+            if not isinstance(ctx_obj, dict):
+                warnings.append(
+                    ScanWarning(
+                        path=path,
+                        category="keybindings",
+                        reason=(
+                            f"`bindings[{i}]` is "
+                            f"{type(ctx_obj).__name__}, expected an object"
+                        ),
+                    )
+                )
+                continue
+            ctx_d = cast("dict[str, object]", ctx_obj)
+            context = as_str(ctx_d.get("context")) or ""
+            inner = ctx_d.get("bindings")
+            if inner is None:
+                continue
+            if not isinstance(inner, dict):
+                warnings.append(
+                    ScanWarning(
+                        path=path,
+                        category="keybindings",
+                        reason=(
+                            f"`bindings[{i}].bindings` is "
+                            f"{type(inner).__name__}, expected an object"
+                        ),
+                    )
+                )
+                continue
+            for key, action in cast("dict[str, object]", inner).items():
+                entries.append(
+                    KeybindingEntry(
+                        context=context,
+                        key=str(key),
+                        action=str(action),
+                    )
+                )
         return KeybindingsBundle(path=path, entries=tuple(entries))
 
     def _scan_mcp(
         self, root: Path, warnings: list[ScanWarning]
     ) -> tuple[MCPServer, ...]:
         results: list[MCPServer] = []
+        seen_names: set[str] = set()
         for filename in ("settings.json", "remote-settings.json"):
             path = root / filename
             if not path.exists():
@@ -415,6 +512,33 @@ class LocalSource:
                         env=MappingProxyType(env_obj),
                     )
                 )
+                seen_names.add(str(srv_name))
+
+        # Surface OAuth-based MCP servers Claude Code registered into
+        # `mcp-needs-auth-cache.json`. These never appear in
+        # `mcpServers` because they're configured through the
+        # claude.ai UI, but they're real entries the user might want
+        # to know about — and they won't actually work until auth
+        # completes.
+        auth_cache_path = root / "mcp-needs-auth-cache.json"
+        if auth_cache_path.is_file():
+            data, warning = load_json(auth_cache_path, category="mcp")
+            if warning is not None:
+                warnings.append(warning)
+            if isinstance(data, dict):
+                for name in cast("dict[str, object]", data):
+                    if name in seen_names:
+                        continue
+                    results.append(
+                        MCPServer(
+                            name=str(name),
+                            source_path=auth_cache_path,
+                            command=None,
+                            args=(),
+                            env=MappingProxyType({}),
+                            auth_pending=True,
+                        )
+                    )
         return tuple(results)
 
 
@@ -490,6 +614,166 @@ def _safe_load_json_dict(
     return {}
 
 
+def _union_str_tuple(*lists: tuple[str, ...]) -> tuple[str, ...]:
+    """Order-preserving union of string sequences."""
+    seen: list[str] = []
+    for lst in lists:
+        for item in lst:
+            if item not in seen:
+                seen.append(item)
+    return tuple(seen)
+
+
+def _load_marketplaces(
+    root: Path, warnings: list[ScanWarning]
+) -> dict[str, dict[str, str]]:
+    """Return {marketplace_name: source_dict} from all known registries.
+
+    Sources, in increasing precedence (later wins on conflict):
+    1. `<root>/plugins/known_marketplaces.json` — Claude Code's
+       authoritative cache; its `source` block is what's cloned.
+    2. `extraKnownMarketplaces` in settings.json — user-declared.
+    3. `extraKnownMarketplaces` in remote-settings.json — enterprise.
+
+    Each source_dict carries flattened `source.*` keys plus optional
+    `installLocation` / `lastUpdated` from the registry file.
+    """
+    out: dict[str, dict[str, str]] = {}
+
+    registry_path = root / "plugins" / "known_marketplaces.json"
+    if registry_path.is_file():
+        data, warning = load_json(registry_path, category="plugins")
+        if warning is not None:
+            warnings.append(warning)
+        if isinstance(data, dict):
+            for name, entry in cast("dict[str, object]", data).items():
+                if isinstance(entry, dict):
+                    out[str(name)] = _flatten_marketplace(
+                        cast("dict[str, object]", entry)
+                    )
+
+    for filename in ("settings.json", "remote-settings.json"):
+        data = _safe_load_json_dict(root / filename, "plugins", warnings)
+        extra = as_dict(data.get("extraKnownMarketplaces"))
+        if not extra:
+            continue
+        for name, entry in extra.items():
+            if isinstance(entry, dict):
+                flat = _flatten_marketplace(cast("dict[str, object]", entry))
+                out.setdefault(str(name), {}).update(flat)
+
+    return out
+
+
+def _flatten_marketplace(entry: dict[str, object]) -> dict[str, str]:
+    flat: dict[str, str] = {}
+    src = entry.get("source")
+    if isinstance(src, dict):
+        for k, v in cast("dict[str, object]", src).items():
+            if isinstance(v, str):
+                flat[str(k)] = v
+    for k in ("installLocation", "lastUpdated"):
+        v = entry.get(k)
+        if isinstance(v, str):
+            flat[k] = v
+    return flat
+
+
+def _scan_local_overrides(root: Path) -> tuple[str, ...]:
+    """Return relative paths of every file under `<root>/local/`.
+
+    Claude Code itself doesn't define a `local/` directory — it's a
+    user convention for staging patches or scratch scripts. We list
+    what's there so users see what's adjacent to their config; we
+    make no claim about what these files do.
+    """
+    local_dir = root / "local"
+    if not local_dir.is_dir():
+        return ()
+    paths: list[str] = []
+    for f in sorted(local_dir.rglob("*")):
+        if f.is_file():
+            try:
+                paths.append(str(f.relative_to(local_dir)))
+            except ValueError:
+                continue
+    return tuple(paths)
+
+
+def _load_policy_limits(root: Path, warnings: list[ScanWarning]) -> dict[str, bool]:
+    """Return {restriction_name: allowed} from `<root>/policy-limits.json`.
+
+    Empty dict when the file is absent (typical for project scope).
+    """
+    path = root / "policy-limits.json"
+    if not path.is_file():
+        return {}
+    data, warning = load_json(path, category="settings")
+    if warning is not None:
+        warnings.append(warning)
+    if not isinstance(data, dict):
+        return {}
+    restrictions = cast("dict[str, object]", data).get("restrictions")
+    if not isinstance(restrictions, dict):
+        return {}
+    out: dict[str, bool] = {}
+    for name, entry in cast("dict[str, object]", restrictions).items():
+        if isinstance(entry, dict):
+            allowed = cast("dict[str, object]", entry).get("allowed")
+            if isinstance(allowed, bool):
+                out[str(name)] = allowed
+    return out
+
+
+def _parse_status_line(v: object) -> Mapping[str, str] | None:
+    """Normalize statusLine to a {type, command, ...} dict, or None.
+
+    Accepts dict-shaped configs (modern) and bare strings (legacy form
+    where the entire value is the shell command).
+    """
+    if isinstance(v, str):
+        return MappingProxyType({"type": "command", "command": v})
+    if isinstance(v, dict):
+        d = {
+            str(k): str(val)
+            for k, val in cast("dict[str, object]", v).items()
+            if isinstance(val, str)
+        }
+        return MappingProxyType(d) if d else None
+    return None
+
+
+def _load_blocklist(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
+    """Return {qualified_id: reason} for plugins in `plugins/blocklist.json`.
+
+    Claude Code refuses to load any plugin in this file regardless of
+    enabledPlugins. The blocklist only lives at user scope; at project
+    scope the file is absent and we return {}.
+    """
+    path = root / "plugins" / "blocklist.json"
+    if not path.exists():
+        return {}
+    data, warning = load_json(path, category="plugins")
+    if warning is not None:
+        warnings.append(warning)
+    if not isinstance(data, dict):
+        return {}
+    entries = cast("dict[str, object]", data).get("plugins")
+    if not isinstance(entries, list):
+        return {}
+    out: dict[str, str] = {}
+    for entry in cast("list[object]", entries):
+        if not isinstance(entry, dict):
+            continue
+        entry_d = cast("dict[str, object]", entry)
+        qid = as_str(entry_d.get("plugin"))
+        if not qid:
+            continue
+        reason = as_str(entry_d.get("reason")) or as_str(entry_d.get("text")) or ""
+        out[qid] = reason
+    return out
+
+
 def _collect_enabled_plugins(root: Path, warnings: list[ScanWarning]) -> set[str]:
     # All three files contribute to enabledPlugins. `/plugin install` writes
     # to settings.local.json; enterprise/remote config lands in
@@ -501,20 +785,26 @@ def _collect_enabled_plugins(root: Path, warnings: list[ScanWarning]) -> set[str
         if ep is not None:
             maps[filename] = ep
 
-    # Warn when two source files disagree on the same QID.
+    # Note when two source files disagree on the same QID. Claude Code's
+    # observed runtime behavior unions enabledPlugins across these files
+    # (a plugin enabled in ANY file is loaded), so a disagreement isn't
+    # a misconfiguration — the warning text reflects that.
     filenames = list(maps)
     for i, a in enumerate(filenames):
         for b in filenames[i + 1 :]:
             for qid in set(maps[a]) & set(maps[b]):
                 if bool(maps[a][qid]) != bool(maps[b][qid]):
+                    effective = bool(maps[a][qid]) or bool(maps[b][qid])
                     warnings.append(
                         ScanWarning(
                             path=None,
                             category="plugins",
                             reason=(
-                                f"enabledPlugins conflict for {qid}: "
+                                f"plugin {qid} enabledPlugins value differs: "
                                 f"{a}={bool(maps[a][qid])}, "
-                                f"{b}={bool(maps[b][qid])}"
+                                f"{b}={bool(maps[b][qid])}; "
+                                f"Claude Code unions across files, "
+                                f"effective={effective}"
                             ),
                         )
                     )

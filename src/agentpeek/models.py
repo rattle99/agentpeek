@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal
 
 
@@ -20,6 +21,22 @@ class SettingsBundle:
     editor_mode: str | None
     effort_level: str | None
     output_style: str | None
+    # `statusLine` is either {"type": "command", "command": "..."} or a
+    # legacy string; normalized to dict shape (or None when absent).
+    status_line: Mapping[str, str] | None
+    skip_auto_permission_prompt: bool
+    # `policy-limits.json` from this scope, flattened to
+    # {restriction_name: allowed_bool}. Empty when the file is absent.
+    policy_restrictions: Mapping[str, bool]
+    # Enterprise-pushed remote-settings.json extras. Surfaced so users
+    # can see what their managed config injected into the session.
+    company_announcements: tuple[str, ...]
+    spinner_tips: tuple[str, ...]
+    # Relative paths inside `<root>/local/` — typically user-applied
+    # patches or scratch scripts that aren't Claude Code config but
+    # may shadow or modify the canonical hooks. Surfaced so the user
+    # can see what's there.
+    local_overrides: tuple[str, ...]
     env: Mapping[str, str]
     permissions_allow: tuple[str, ...]
     permissions_deny: tuple[str, ...]
@@ -116,6 +133,16 @@ class Plugin:
     commands: tuple[SlashCommand, ...] = ()
     hooks: tuple[HookSpec, ...] = ()
     mcps: tuple["MCPServer", ...] = ()
+    # `~/.claude/plugins/blocklist.json` entries override any
+    # `enabled=True` claim — Claude Code refuses to load a blocklisted
+    # plugin regardless of settings.
+    blocked: bool = False
+    blocked_reason: str | None = None
+    # Where this plugin's marketplace lives — resolved from
+    # `~/.claude/plugins/known_marketplaces.json` and the
+    # `extraKnownMarketplaces` keys of user + remote settings. Empty
+    # mapping when the marketplace isn't found in any registry.
+    marketplace_source: Mapping[str, str] = MappingProxyType({})
 
 
 MemoryKind = Literal["claude_md", "memory_index", "memory_entry"]
@@ -151,6 +178,11 @@ class MCPServer:
     args: tuple[str, ...]
     env: Mapping[str, str]
     source_plugin: str | None = None
+    # True when this MCP server appears in
+    # `~/.claude/mcp-needs-auth-cache.json` — Claude Code remembers it
+    # but the OAuth/auth flow hasn't completed, so it won't actually
+    # connect until the user finishes auth.
+    auth_pending: bool = False
 
 
 @dataclass(frozen=True, slots=True)

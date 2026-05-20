@@ -572,6 +572,25 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
             _SettingsItem("Output style", "scalar", s.output_style),
         ),
         (
+            _scalar_label(
+                "Skip auto permission prompt",
+                "yes" if s.skip_auto_permission_prompt else None,
+            ),
+            _SettingsItem(
+                "Skip auto permission prompt",
+                "scalar",
+                "yes" if s.skip_auto_permission_prompt else None,
+            ),
+        ),
+        (
+            _count_item_label(
+                "Status line", 1 if s.status_line else 0
+            ),
+            _SettingsItem(
+                "Status line", "dict", dict(s.status_line) if s.status_line else {}
+            ),
+        ),
+        (
             _count_item_label("Env vars", len(s.env)),
             _SettingsItem("Env vars", "dict", dict(s.env)),
         ),
@@ -590,6 +609,28 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
         (
             _count_item_label("Enabled plugins", len(s.enabled_plugins)),
             _SettingsItem("Enabled plugins", "list", list(s.enabled_plugins)),
+        ),
+        (
+            _count_item_label("Policy restrictions", len(s.policy_restrictions)),
+            _SettingsItem(
+                "Policy restrictions",
+                "dict",
+                {k: str(v) for k, v in s.policy_restrictions.items()},
+            ),
+        ),
+        (
+            _count_item_label("Company announcements", len(s.company_announcements)),
+            _SettingsItem(
+                "Company announcements", "list", list(s.company_announcements)
+            ),
+        ),
+        (
+            _count_item_label("Spinner tips override", len(s.spinner_tips)),
+            _SettingsItem("Spinner tips override", "list", list(s.spinner_tips)),
+        ),
+        (
+            _count_item_label("Local overrides", len(s.local_overrides)),
+            _SettingsItem("Local overrides", "list", list(s.local_overrides)),
         ),
         (
             _count_item_label("Hooks dir files", s.hooks_dir_files),
@@ -625,7 +666,7 @@ def _settings_body(payload: _SettingsItem) -> Widget:
     if payload.kind == "scalar":
         if payload.value:
             return Static(str(payload.value))
-        return Static("(unset)", classes="muted")
+        return Static("—", classes="muted")
     if payload.kind == "dict" and isinstance(payload.value, dict):
         return _dict_body(cast("dict[str, object]", payload.value))  # pyright: ignore[reportUnknownMemberType]
     if payload.kind == "list" and isinstance(payload.value, list):
@@ -658,14 +699,22 @@ def _list_body(lst: list[object]) -> Widget:
 # --- Hooks --------------------------------------------------------------
 
 
+_PREVIEW_TRUNC_MARK = " […]"
+
+
+def _truncate_preview(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + _PREVIEW_TRUNC_MARK
+
+
 def _hooks_items(hooks: tuple[HookSpec, ...]) -> list[tuple[Content, object]]:
     items: list[tuple[Content, object]] = []
     for h in hooks:
-        preview = h.command[:40] + ("…" if len(h.command) > 40 else "")
         label = Content.assemble(
             (h.event, "bold"),
             (f"  [{h.matcher or '*'}]  ", COLOR_MUTED),
-            preview,
+            _truncate_preview(h.command, 40),
         )
         items.append((_plug_prefix(label, h.source_plugin), h))
     return items
@@ -751,12 +800,12 @@ def _commands_detail_widgets(payload: object) -> list[Widget]:
     else:
         header_content = _styled(f"/{payload.name}", f"bold {COLOR_PRIMARY}")
     widgets: list[Widget] = [Static(header_content, classes="detail-header")]
-    tools = ", ".join(payload.allowed_tools) if payload.allowed_tools else "(none)"
+    tools = ", ".join(payload.allowed_tools) if payload.allowed_tools else "—"
     rows: list[tuple[str, RenderableType]] = [
         ("Path", str(payload.path)),
         (
             "Argument hint",
-            payload.argument_hint or _muted_cell("(none)"),
+            payload.argument_hint or _muted_cell("—"),
         ),
         ("Allowed tools", tools),
     ]
@@ -774,13 +823,15 @@ def _plugins_items(plugins: tuple[Plugin, ...]) -> list[tuple[Content, object]]:
         state_text, state_color = (
             ("enabled", COLOR_SUCCESS) if p.enabled else ("disabled", COLOR_MUTED)
         )
-        label = Content.assemble(
+        parts: list[Content | str | tuple[str, str]] = [
             (p.qualified_id, "bold"),
             "  ",
             (state_text, state_color),
             (f"  [{len(p.installations)} install(s)]", COLOR_MUTED),
-        )
-        items.append((label, p))
+        ]
+        if p.blocked:
+            parts.extend(("  ", ("[BLOCKED]", f"bold {COLOR_ERROR}")))
+        items.append((Content.assemble(*parts), p))
     return items
 
 
@@ -798,8 +849,30 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
     widgets: list[Widget] = [Static(header_content, classes="detail-header")]
     rows: list[tuple[str, RenderableType]] = [
         ("ID", payload.id),
-        ("Marketplace", payload.marketplace or _muted_cell("(none)")),
+        ("Marketplace", payload.marketplace or _muted_cell("—")),
     ]
+    src = payload.marketplace_source
+    if src:
+        source_kind = src.get("source", "")
+        repo = src.get("repo", "")
+        ref = src.get("ref", "")
+        if source_kind and repo:
+            source_line = f"{source_kind}:{repo}" + (f"@{ref}" if ref else "")
+            rows.append(("Source", source_line))
+        if src.get("installLocation"):
+            rows.append(("Cached at", src["installLocation"]))
+        if src.get("lastUpdated"):
+            rows.append(("Marketplace updated", src["lastUpdated"]))
+    if payload.blocked:
+        rows.append(
+            (
+                "Blocklisted",
+                Text(
+                    payload.blocked_reason or "(no reason given)",
+                    style="bold red",
+                ),
+            )
+        )
     widgets.append(_card("Properties", Static(_kv_table(rows))))
     if payload.manifest is not None:
         widgets.append(_card("Manifest", Static(_manifest_table(payload.manifest))))
@@ -879,7 +952,7 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
                         (
                             h.event,
                             h.matcher or "*",
-                            h.command[:60] + ("…" if len(h.command) > 60 else ""),
+                            _truncate_preview(h.command, 60),
                         )
                         for h in payload.hooks
                     ),
@@ -952,7 +1025,7 @@ def _skills_detail_widgets(payload: object) -> list[Widget]:
         ),
         (
             "Description",
-            payload.description or _muted_cell("(none)"),
+            payload.description or _muted_cell("—"),
         ),
         ("Path", str(payload.path)),
     ]
@@ -1053,11 +1126,13 @@ def _keybindings_detail_widgets(payload: object) -> list[Widget]:
 def _mcp_items(mcp: tuple[MCPServer, ...]) -> list[tuple[Content, object]]:
     items: list[tuple[Content, object]] = []
     for m in mcp:
-        label = Content.assemble(
+        parts: list[Content | str | tuple[str, str]] = [
             (m.name, "bold"),
-            (f"  ({m.command or '?'})", COLOR_MUTED),
-        )
-        items.append((_plug_prefix(label, m.source_plugin), m))
+            (f"  ({m.command or 'oauth'})", COLOR_MUTED),
+        ]
+        if m.auth_pending:
+            parts.extend(("  ", ("[auth pending]", f"bold {COLOR_WARNING}")))
+        items.append((_plug_prefix(Content.assemble(*parts), m.source_plugin), m))
     return items
 
 
@@ -1070,25 +1145,49 @@ def _mcp_detail_widgets(payload: object) -> list[Widget]:
             classes="detail-header",
         )
     ]
-    args = " ".join(payload.args) if payload.args else "(none)"
+    args = " ".join(payload.args) if payload.args else "—"
     rows: list[tuple[str, RenderableType]] = [
         ("Source", str(payload.source_path)),
-        ("Command", payload.command or _muted_cell("(none)")),
-        ("Args", args),
     ]
+    if payload.source_plugin:
+        rows.append(("Source plugin", payload.source_plugin))
+    rows.extend(
+        [
+            ("Command", payload.command or _muted_cell("(none — OAuth-based)")),
+            ("Args", args),
+        ]
+    )
+    if payload.auth_pending:
+        rows.append(
+            (
+                "Auth",
+                Text(
+                    "pending — Claude Code will not connect until OAuth completes",
+                    style="bold yellow",
+                ),
+            )
+        )
     widgets.append(_card("Properties", Static(_kv_table(rows))))
     title = f"Environment ({len(payload.env)})"
     if not payload.env:
-        widgets.append(_card(title, Static("(no env vars)", classes="muted")))
+        widgets.append(_card(title, Static("(empty)", classes="muted")))
     else:
+        # `redact()` only masks values of length ≥ 8 — short values like
+        # "true" / "on" pass through. Surface that contract honestly
+        # instead of labelling the column "redacted" when some rows
+        # aren't.
         env_rows: tuple[tuple[str, ...], ...] = tuple(
             (k, redact(payload.env[k])) for k in sorted(payload.env.keys())
         )
         widgets.append(
             _card(
                 title,
-                _PendingDataTable(
-                    columns=("Key", "Value (redacted)"), rows=env_rows
+                Container(
+                    _PendingDataTable(columns=("Key", "Value"), rows=env_rows),
+                    Static(
+                        "(values ≥ 8 chars are masked)",
+                        classes="muted",
+                    ),
                 ),
             )
         )
@@ -1105,7 +1204,7 @@ def _warnings_items(
     for w in warnings:
         sev = warning_severity(w.category)
         color = _SEVERITY_COLOR[sev]
-        preview = w.reason[:60] + ("…" if len(w.reason) > 60 else "")
+        preview = _truncate_preview(w.reason, 60)
         label = Content.assemble(
             (f"[{w.category}] ", f"bold {color}"),
             preview,

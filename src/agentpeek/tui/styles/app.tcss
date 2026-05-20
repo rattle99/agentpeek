@@ -79,12 +79,22 @@ Screen {
     border-bottom: none;
 }
 
-/* Group headers in the items list — bolder, accent-tinted, no
-   hover/highlight (they're disabled and non-selectable). Used by the
-   Skills category to mark each source plugin. */
+/* Group headers in the items list — non-selectable plugin dividers
+   used by the Skills category. Distinct background + accent left
+   border + dimmed text-style on hover-attempt make it clear these
+   aren't clickable rows. */
 #item-list > ListItem.group-header {
-    background: $surface;
+    background: $primary 15%;
+    border-left: thick $primary;
     padding-top: 1;
+}
+
+/* Even when highlighted (cursor passes over a header) keep the
+   visual identical — disabled+highlighted shouldn't look selectable. */
+#item-list > ListItem.group-header.--highlight,
+#item-list:focus > ListItem.group-header.--highlight {
+    background: $primary 15%;
+    text-style: none;
 }
 
 /* Selection emphasis — highlighted row uses $accent. The focused list

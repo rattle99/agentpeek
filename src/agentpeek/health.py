@@ -78,6 +78,23 @@ def _check_plugin_state(result: ScanResult) -> list[ScanWarning]:
     issues: list[ScanWarning] = []
     for plugin in result.plugins:
         local_installs = [i for i in plugin.installations if is_for_this_scope(i)]
+        if plugin.blocked and plugin.enabled:
+            issues.append(
+                ScanWarning(
+                    path=None,
+                    category="plugin_state",
+                    reason=(
+                        f"plugin {plugin.qualified_id} is enabled but appears "
+                        f"in plugins/blocklist.json"
+                        + (
+                            f" (reason: {plugin.blocked_reason})"
+                            if plugin.blocked_reason
+                            else ""
+                        )
+                        + " — Claude Code will refuse to load it"
+                    ),
+                )
+            )
         if plugin.enabled and not plugin.installations:
             issues.append(
                 ScanWarning(
