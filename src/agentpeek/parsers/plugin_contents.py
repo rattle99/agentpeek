@@ -16,7 +16,6 @@ Returned `SlashCommand` / `HookSpec` / `MCPServer` instances carry
 `source_plugin = qualified_id` for provenance.
 """
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -33,7 +32,11 @@ from agentpeek.models import (
 )
 from agentpeek.parsers import load_frontmatter, load_json
 from agentpeek.parsers.coerce import as_int, as_str, as_str_dict
-from agentpeek.parsers.frontmatter_parser import read_str_field
+from agentpeek.parsers.frontmatter_parser import (
+    read_str_field,
+    read_str_or_list_field,
+    read_string_list_field,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,11 +188,11 @@ def _parse_skills(
                     path=skill_md, category="plugin_skill", warnings=warnings,
                 ),
                 user_invocable=_as_optional_bool(file.metadata.get("user-invocable")),
-                allowed_tools=_split_csv_field(
+                allowed_tools=read_string_list_field(
                     file.metadata, "allowed-tools",
                     path=skill_md, category="plugin_skill", warnings=warnings,
                 ),
-                disallowed_tools=_split_csv_field(
+                disallowed_tools=read_string_list_field(
                     file.metadata, "disallowed-tools",
                     path=skill_md, category="plugin_skill", warnings=warnings,
                 ),
@@ -229,11 +232,11 @@ def _parse_agents(
                     path=md, category="plugin_agent", warnings=warnings,
                 ),
                 user_invocable=_as_optional_bool(file.metadata.get("user-invocable")),
-                allowed_tools=_split_csv_field(
+                allowed_tools=read_string_list_field(
                     file.metadata, "allowed-tools",
                     path=md, category="plugin_agent", warnings=warnings,
                 ),
-                disallowed_tools=_split_csv_field(
+                disallowed_tools=read_string_list_field(
                     file.metadata, "disallowed-tools",
                     path=md, category="plugin_agent", warnings=warnings,
                 ),
@@ -246,22 +249,6 @@ def _as_optional_bool(v: object) -> bool | None:
     if isinstance(v, bool):
         return v
     return None
-
-
-def _split_csv_field(
-    metadata: Mapping[str, object],
-    key: str,
-    *,
-    path: Path,
-    category: str,
-    warnings: list[ScanWarning],
-) -> tuple[str, ...]:
-    raw = read_str_field(
-        metadata, key, path=path, category=category, warnings=warnings
-    )
-    if not raw:
-        return ()
-    return tuple(s.strip() for s in raw.split(",") if s.strip())
 
 
 # --- Slash commands ------------------------------------------------------
@@ -298,15 +285,6 @@ def _parse_commands(
                 )
             )
             continue
-        allowed = read_str_field(
-            file.metadata, "allowed-tools",
-            path=md, category="plugin_command", warnings=warnings,
-        )
-        allowed_tuple: tuple[str, ...] = (
-            tuple(s.strip() for s in allowed.split(",") if s.strip())
-            if allowed
-            else ()
-        )
         results.append(
             SlashCommand(
                 path=md,
@@ -315,11 +293,14 @@ def _parse_commands(
                     file.metadata, "description",
                     path=md, category="plugin_command", warnings=warnings,
                 ),
-                argument_hint=read_str_field(
+                argument_hint=read_str_or_list_field(
                     file.metadata, "argument-hint",
                     path=md, category="plugin_command", warnings=warnings,
                 ),
-                allowed_tools=allowed_tuple,
+                allowed_tools=read_string_list_field(
+                    file.metadata, "allowed-tools",
+                    path=md, category="plugin_command", warnings=warnings,
+                ),
                 body=file.body,
                 source_plugin=qualified_id,
             )

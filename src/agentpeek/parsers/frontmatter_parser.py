@@ -49,6 +49,82 @@ def read_str_field(
     return None
 
 
+def read_string_list_field(
+    metadata: Mapping[str, object],
+    key: str,
+    *,
+    path: Path,
+    category: str,
+    warnings: list[ScanWarning],
+) -> tuple[str, ...]:
+    """Read a field that may be either a comma-separated string or a YAML list.
+
+    Claude Code accepts both forms for `allowed-tools` / `disallowed-tools`
+    in skill, agent, and command frontmatter — production plugins use either
+    style. Returns the items as a tuple; () when absent. Warns only on a
+    genuinely unexpected type (number, mapping, etc.).
+    """
+    v = metadata.get(key)
+    if v is None:
+        return ()
+    if isinstance(v, str):
+        return tuple(s.strip() for s in v.split(",") if s.strip())
+    if isinstance(v, list):
+        items: list[str] = []
+        for item in cast("list[object]", v):
+            s = str(item).strip()
+            if s:
+                items.append(s)
+        return tuple(items)
+    warnings.append(
+        ScanWarning(
+            path=path,
+            category=category,
+            reason=(
+                f"frontmatter `{key}` is {type(v).__name__}, "
+                "expected string or list; ignored"
+            ),
+        )
+    )
+    return ()
+
+
+def read_str_or_list_field(
+    metadata: Mapping[str, object],
+    key: str,
+    *,
+    path: Path,
+    category: str,
+    warnings: list[ScanWarning],
+) -> str | None:
+    """Read a string field that tolerates a YAML list value, joined with ' '.
+
+    `argument-hint` in slash command frontmatter is typically a single hint
+    string (`"<file> [options]"`) but YAML list form (`["detail"]`) also
+    appears in real configs.
+    """
+    v = metadata.get(key)
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v
+    if isinstance(v, list):
+        items = [str(item).strip() for item in cast("list[object]", v)]
+        joined = " ".join(s for s in items if s)
+        return joined or None
+    warnings.append(
+        ScanWarning(
+            path=path,
+            category=category,
+            reason=(
+                f"frontmatter `{key}` is {type(v).__name__}, "
+                "expected string or list; ignored"
+            ),
+        )
+    )
+    return None
+
+
 def load_frontmatter(
     path: Path, *, category: str
 ) -> tuple[FrontmatterFile | None, ScanWarning | None]:
