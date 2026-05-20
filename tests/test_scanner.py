@@ -26,7 +26,7 @@ def test_scan_local_source(sample_claude_root: Path) -> None:
     assert result.settings.theme == "dark"
     assert result.settings.effort_level == "high"
     assert len(result.settings.permissions_allow) == 2
-    assert result.settings.hooks_dir_files == 2
+    assert result.settings.hooks_dir_files == ("orphan.sh", "present-hook.sh")
 
     command_names = {c.name for c in result.commands}
     assert command_names == {"good", "plain", "broken-fm"}

@@ -159,8 +159,10 @@ class LocalSource:
             hooks_raw[event] = tuple(bucket)
 
         hooks_dir = root / "hooks"
-        hooks_dir_files = (
-            sum(1 for _ in hooks_dir.iterdir()) if hooks_dir.is_dir() else 0
+        hooks_dir_files: tuple[str, ...] = (
+            tuple(sorted(f.name for f in hooks_dir.iterdir() if f.is_file()))
+            if hooks_dir.is_dir()
+            else ()
         )
 
         # statusLine can be a dict ({"type": "command", "command": "..."})
@@ -731,10 +733,14 @@ def _scan_local_overrides(root: Path) -> tuple[str, ...]:
     return tuple(paths)
 
 
-def _load_policy_limits(root: Path, warnings: list[ScanWarning]) -> dict[str, bool]:
-    """Return {restriction_name: allowed} from `<root>/policy-limits.json`.
+def _load_policy_limits(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
+    """Return {restriction_name: formatted-string} from
+    `<root>/policy-limits.json`.
 
-    Empty dict when the file is absent (typical for project scope).
+    The string includes both the allowed bool and any `message` /
+    `text` field the enterprise admin attached. Format:
+    `"allowed"` / `"denied"` / `"denied — <message>"` etc.
+    Empty dict when the file is absent.
     """
     path = root / "policy-limits.json"
     if not path.is_file():
@@ -747,12 +753,17 @@ def _load_policy_limits(root: Path, warnings: list[ScanWarning]) -> dict[str, bo
     restrictions = cast("dict[str, object]", data).get("restrictions")
     if not isinstance(restrictions, dict):
         return {}
-    out: dict[str, bool] = {}
+    out: dict[str, str] = {}
     for name, entry in cast("dict[str, object]", restrictions).items():
-        if isinstance(entry, dict):
-            allowed = cast("dict[str, object]", entry).get("allowed")
-            if isinstance(allowed, bool):
-                out[str(name)] = allowed
+        if not isinstance(entry, dict):
+            continue
+        entry_d = cast("dict[str, object]", entry)
+        allowed = entry_d.get("allowed")
+        verdict = (
+            "allowed" if allowed is True else "denied" if allowed is False else "?"
+        )
+        message = as_str(entry_d.get("message")) or as_str(entry_d.get("text"))
+        out[str(name)] = f"{verdict} — {message}" if message else verdict
     return out
 
 
@@ -802,8 +813,22 @@ def _load_blocklist(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
         qid = as_str(entry_d.get("plugin"))
         if not qid:
             continue
-        reason = as_str(entry_d.get("reason")) or as_str(entry_d.get("text")) or ""
-        out[qid] = reason
+        reason = as_str(entry_d.get("reason"))
+        text = as_str(entry_d.get("text"))
+        if reason and text and reason != text:
+            warnings.append(
+                ScanWarning(
+                    path=path,
+                    category="plugins",
+                    reason=(
+                        f"blocklist entry for {qid} has both `reason` and "
+                        f"`text` with different values; surfacing both"
+                    ),
+                )
+            )
+            out[qid] = f"{reason} (text: {text})"
+        else:
+            out[qid] = reason or text or ""
     return out
 
 

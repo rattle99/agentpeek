@@ -615,7 +615,7 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
             _SettingsItem(
                 "Policy restrictions",
                 "dict",
-                {k: str(v) for k, v in s.policy_restrictions.items()},
+                dict(s.policy_restrictions),
             ),
         ),
         (
@@ -633,8 +633,10 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
             _SettingsItem("Local overrides", "list", list(s.local_overrides)),
         ),
         (
-            _count_item_label("Hooks dir files", s.hooks_dir_files),
-            _SettingsItem("Hooks dir files", "scalar", str(s.hooks_dir_files)),
+            _count_item_label("Hooks dir files", len(s.hooks_dir_files)),
+            _SettingsItem(
+                "Hooks dir files", "list", list(s.hooks_dir_files)
+            ),
         ),
     ]
 

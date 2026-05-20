@@ -26,8 +26,9 @@ class SettingsBundle:
     status_line: Mapping[str, str] | None
     skip_auto_permission_prompt: bool
     # `policy-limits.json` from this scope, flattened to
-    # {restriction_name: allowed_bool}. Empty when the file is absent.
-    policy_restrictions: Mapping[str, bool]
+    # {restriction_name: "allowed" / "denied" / "denied — <message>"}.
+    # Empty when the file is absent.
+    policy_restrictions: Mapping[str, str]
     # Enterprise-pushed remote-settings.json extras. Surfaced so users
     # can see what their managed config injected into the session.
     company_announcements: tuple[str, ...]
@@ -43,7 +44,10 @@ class SettingsBundle:
     permissions_ask: tuple[str, ...]
     enabled_plugins: tuple[str, ...]
     hooks_raw: Mapping[str, tuple[Mapping[str, object], ...]]
-    hooks_dir_files: int
+    # Filenames (relative to `<root>/hooks/`) present on disk —
+    # surfaced as a list so users can see actual script names without
+    # opening the filesystem.
+    hooks_dir_files: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)

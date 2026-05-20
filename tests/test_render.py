@@ -285,7 +285,7 @@ def test_item_body_settings_returns_none() -> None:
         spinner_tips=(),
         local_overrides=(),
         hooks_raw={},
-        hooks_dir_files=0,
+        hooks_dir_files=(),
     )
     # Settings bundle has no single "body" — yanking it is a no-op.
     assert item_body(bundle) is None
