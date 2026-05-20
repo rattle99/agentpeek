@@ -283,7 +283,6 @@ def test_item_body_settings_returns_none() -> None:
         policy_restrictions={},
         company_announcements=(),
         spinner_tips=(),
-        local_overrides=(),
         hooks_raw={},
         hooks_dir_files=(),
     )

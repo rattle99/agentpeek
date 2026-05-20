@@ -188,8 +188,6 @@ class LocalSource:
         spinner_override = as_dict(remote_data.get("spinnerTipsOverride")) or {}
         spinner_tips = as_str_tuple(spinner_override.get("tips"))
 
-        local_overrides = _scan_local_overrides(root)
-
         return SettingsBundle(
             user_settings_path=user_path if user_path.exists() else None,
             local_settings_path=local_path if local_path.exists() else None,
@@ -208,7 +206,6 @@ class LocalSource:
             policy_restrictions=MappingProxyType(policy_restrictions),
             company_announcements=company_announcements,
             spinner_tips=spinner_tips,
-            local_overrides=local_overrides,
             hooks_raw=MappingProxyType(hooks_raw),
             hooks_dir_files=hooks_dir_files,
         )
@@ -710,27 +707,6 @@ def _flatten_marketplace(entry: dict[str, object]) -> dict[str, str]:
         if isinstance(v, str):
             flat[k] = v
     return flat
-
-
-def _scan_local_overrides(root: Path) -> tuple[str, ...]:
-    """Return relative paths of every file under `<root>/local/`.
-
-    Claude Code itself doesn't define a `local/` directory — it's a
-    user convention for staging patches or scratch scripts. We list
-    what's there so users see what's adjacent to their config; we
-    make no claim about what these files do.
-    """
-    local_dir = root / "local"
-    if not local_dir.is_dir():
-        return ()
-    paths: list[str] = []
-    for f in sorted(local_dir.rglob("*")):
-        if f.is_file():
-            try:
-                paths.append(str(f.relative_to(local_dir)))
-            except ValueError:
-                continue
-    return tuple(paths)
 
 
 def _load_policy_limits(root: Path, warnings: list[ScanWarning]) -> dict[str, str]:
