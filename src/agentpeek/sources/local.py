@@ -94,16 +94,23 @@ class LocalSource:
         env_local = as_str_dict(local_data.get("env"))
         env = {**env_user, **env_local}
 
-        permissions = as_dict(local_data.get("permissions")) or as_dict(
-            user_data.get("permissions")
+        # Per Claude Code docs, permission rules MERGE across scopes
+        # rather than override. Union allow/deny/ask from both files,
+        # preserving the order user-then-local with dedup.
+        user_perms = as_dict(user_data.get("permissions")) or {}
+        local_perms = as_dict(local_data.get("permissions")) or {}
+        permissions_allow = _union_str_tuple(
+            as_str_tuple(user_perms.get("allow")),
+            as_str_tuple(local_perms.get("allow")),
         )
-        permissions_allow = as_str_tuple(
-            permissions.get("allow") if permissions else None
+        permissions_deny = _union_str_tuple(
+            as_str_tuple(user_perms.get("deny")),
+            as_str_tuple(local_perms.get("deny")),
         )
-        permissions_deny = as_str_tuple(
-            permissions.get("deny") if permissions else None
+        permissions_ask = _union_str_tuple(
+            as_str_tuple(user_perms.get("ask")),
+            as_str_tuple(local_perms.get("ask")),
         )
-        permissions_ask = as_str_tuple(permissions.get("ask") if permissions else None)
 
         user_plugins = as_dict(user_data.get("enabledPlugins")) or {}
         local_plugins = as_dict(local_data.get("enabledPlugins")) or {}
@@ -509,6 +516,16 @@ def _safe_load_json_dict(
     if isinstance(data, dict):
         return cast("dict[str, object]", data)
     return {}
+
+
+def _union_str_tuple(*lists: tuple[str, ...]) -> tuple[str, ...]:
+    """Order-preserving union of string sequences."""
+    seen: list[str] = []
+    for lst in lists:
+        for item in lst:
+            if item not in seen:
+                seen.append(item)
+    return tuple(seen)
 
 
 def _load_marketplaces(
