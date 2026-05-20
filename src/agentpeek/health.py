@@ -59,8 +59,25 @@ def _check_orphan_hooks(result: ScanResult) -> list[ScanWarning]:
 
 
 def _check_plugin_state(result: ScanResult) -> list[ScanWarning]:
+    # "enabled / not enabled" can only be asserted for installations whose
+    # ownership is visible from this scope. An installation with `project_path`
+    # set belongs to that project — if it's not the current scope's project,
+    # we can't read that project's settings.local.json to know whether the
+    # plugin is enabled there, so we don't emit a (false-positive) warning.
+    scope_project = (
+        result.root.parent if result.root.name == ".claude" else None
+    )
+
+    def is_for_this_scope(inst: object) -> bool:
+        # PluginInstallation: project_path=None means user-level install
+        # (lives in the user registry without project ownership); a matching
+        # project_path means owned by this scope's project.
+        pp = inst.project_path  # type: ignore[attr-defined]
+        return pp is None or pp == scope_project
+
     issues: list[ScanWarning] = []
     for plugin in result.plugins:
+        local_installs = [i for i in plugin.installations if is_for_this_scope(i)]
         if plugin.enabled and not plugin.installations:
             issues.append(
                 ScanWarning(
@@ -72,7 +89,7 @@ def _check_plugin_state(result: ScanResult) -> list[ScanWarning]:
                     ),
                 )
             )
-        if not plugin.enabled and plugin.installations:
+        if not plugin.enabled and local_installs:
             issues.append(
                 ScanWarning(
                     path=None,

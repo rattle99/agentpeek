@@ -491,28 +491,38 @@ def _safe_load_json_dict(
 
 
 def _collect_enabled_plugins(root: Path, warnings: list[ScanWarning]) -> set[str]:
-    user_data = _safe_load_json_dict(root / "settings.json", "plugins", warnings)
-    remote_data = _safe_load_json_dict(
-        root / "remote-settings.json", "plugins", warnings
-    )
-    enabled_user = as_dict(user_data.get("enabledPlugins")) or {}
-    enabled_remote = as_dict(remote_data.get("enabledPlugins")) or {}
+    # All three files contribute to enabledPlugins. `/plugin install` writes
+    # to settings.local.json; enterprise/remote config lands in
+    # remote-settings.json; settings.json is the user-committed default.
+    maps: dict[str, dict[str, object]] = {}
+    for filename in ("settings.json", "settings.local.json", "remote-settings.json"):
+        data = _safe_load_json_dict(root / filename, "plugins", warnings)
+        ep = as_dict(data.get("enabledPlugins"))
+        if ep is not None:
+            maps[filename] = ep
 
-    for qid in set(enabled_user) & set(enabled_remote):
-        if bool(enabled_user[qid]) != bool(enabled_remote[qid]):
-            warnings.append(
-                ScanWarning(
-                    path=None,
-                    category="plugins",
-                    reason=(
-                        f"enabledPlugins conflict for {qid}: "
-                        f"settings.json={bool(enabled_user[qid])}, "
-                        f"remote-settings.json={bool(enabled_remote[qid])}"
-                    ),
-                )
-            )
+    # Warn when two source files disagree on the same QID.
+    filenames = list(maps)
+    for i, a in enumerate(filenames):
+        for b in filenames[i + 1 :]:
+            for qid in set(maps[a]) & set(maps[b]):
+                if bool(maps[a][qid]) != bool(maps[b][qid]):
+                    warnings.append(
+                        ScanWarning(
+                            path=None,
+                            category="plugins",
+                            reason=(
+                                f"enabledPlugins conflict for {qid}: "
+                                f"{a}={bool(maps[a][qid])}, "
+                                f"{b}={bool(maps[b][qid])}"
+                            ),
+                        )
+                    )
 
-    return {str(k) for k, v in {**enabled_user, **enabled_remote}.items() if bool(v)}
+    merged: dict[str, object] = {}
+    for ep in maps.values():
+        merged.update(ep)
+    return {str(k) for k, v in merged.items() if bool(v)}
 
 
 def _read_memory_file(

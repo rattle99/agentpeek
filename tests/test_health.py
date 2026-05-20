@@ -102,6 +102,72 @@ def test_missing_install_path_flagged() -> None:
     assert "missing install path" in issues[0].reason
 
 
+def test_other_project_installs_dont_trigger_not_enabled_warning(
+    tmp_path: Path,
+) -> None:
+    # A plugin whose only installations belong to OTHER projects (their
+    # projectPath doesn't match this scope's project root) lives in
+    # user.plugins after redistribute, but we can't read those projects'
+    # settings to know whether the plugin is enabled there. Don't emit
+    # a misleading "installed but not enabled" warning.
+    elsewhere = tmp_path / "some-other-project"
+    elsewhere.mkdir()
+    inst_path = tmp_path / "installed"
+    inst_path.mkdir()
+    inst = PluginInstallation(
+        scope="project",
+        install_path=inst_path,
+        version="1.0",
+        installed_at="t",
+        last_updated="t",
+        git_commit_sha=None,
+        project_path=elsewhere,
+    )
+    issues = _check_plugin_state(
+        _result(
+            (_plugin("foo@m", enabled=False, installations=(inst,)),),
+            root=tmp_path / ".claude",
+        )
+    )
+    assert issues == []
+
+
+def test_mixed_user_and_other_project_installs_still_warns(
+    tmp_path: Path,
+) -> None:
+    # If at least one installation IS user-level (project_path=None),
+    # the plugin is meaningfully "installed at this scope" and the
+    # not-enabled warning should still fire.
+    elsewhere = tmp_path / "other"
+    elsewhere.mkdir()
+    user_inst = _install(tmp_path / "u")
+    (tmp_path / "u").mkdir()
+    project_inst = PluginInstallation(
+        scope="project",
+        install_path=tmp_path / "p",
+        version="1.0",
+        installed_at="t",
+        last_updated="t",
+        git_commit_sha=None,
+        project_path=elsewhere,
+    )
+    (tmp_path / "p").mkdir()
+    issues = _check_plugin_state(
+        _result(
+            (
+                _plugin(
+                    "foo@m",
+                    enabled=False,
+                    installations=(user_inst, project_inst),
+                ),
+            ),
+            root=tmp_path / ".claude",
+        )
+    )
+    not_enabled = [i for i in issues if "not enabled" in i.reason]
+    assert len(not_enabled) == 1
+
+
 def test_healthy_plugin_no_warnings(tmp_path: Path) -> None:
     installed = tmp_path / "ok-plugin"
     installed.mkdir()

@@ -1,6 +1,8 @@
 import dataclasses
 from pathlib import Path
 
+import pytest
+
 from agentpeek.health import run_cross_scope_checks
 from agentpeek.models import (
     MemoryFile,
@@ -220,6 +222,60 @@ def test_redistribute_matches_local_scope_with_project_path(tmp_path: Path) -> N
     assert redistributed.project is not None
     assert len(redistributed.user.plugins) == 0
     assert len(redistributed.project.plugins) == 1
+
+
+def test_scan_no_stale_warning_for_project_scope_plugin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: a plugin installed at project scope but registered in the
+    # user-level installed_plugins.json (Claude Code's actual layout) used
+    # to generate a stale "installations on disk but not enabled" warning
+    # at user scope, because health checks ran before redistribute moved
+    # the plugin to the project scope where it IS enabled.
+    import json as _json
+
+    user_root = tmp_path / "user" / ".claude"
+    user_root.mkdir(parents=True)
+    project_dir = tmp_path / "proj"
+    project_root = project_dir / ".claude"
+    project_root.mkdir(parents=True)
+
+    (user_root / "plugins").mkdir()
+    (user_root / "plugins" / "installed_plugins.json").write_text(
+        _json.dumps(
+            {
+                "plugins": {
+                    "foo@m": [
+                        {
+                            "scope": "local",
+                            "projectPath": str(project_dir),
+                            "installPath": str(tmp_path / "installed-foo"),
+                            "version": "1.0",
+                            "installedAt": "t",
+                            "lastUpdated": "t",
+                        }
+                    ]
+                }
+            }
+        )
+    )
+    (tmp_path / "installed-foo").mkdir()
+    (project_root / "settings.local.json").write_text(
+        _json.dumps({"enabledPlugins": {"foo@m": True}})
+    )
+
+    monkeypatch.setattr("agentpeek.scanner.USER_CLAUDE_DIR", user_root)
+    monkeypatch.chdir(project_dir)
+
+    report = scan()
+    assert report.project is not None and report.user is not None
+    all_warnings = list(report.user.warnings) + list(report.project.warnings)
+    assert not any(
+        "foo@m" in w.reason and "not enabled" in w.reason for w in all_warnings
+    ), [w.reason for w in all_warnings]
+    project_plugins = {p.qualified_id: p for p in report.project.plugins}
+    assert "foo@m" in project_plugins
+    assert project_plugins["foo@m"].enabled is True
 
 
 def test_redistribute_ignores_project_path_for_other_project(tmp_path: Path) -> None:

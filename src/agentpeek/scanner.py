@@ -42,24 +42,37 @@ def scan(root: Path | None = None, source_name: str | None = None) -> ScanReport
     if root is not None:
         # Explicit override — single scope. Treat as project unless the path
         # resolves to the user-level dir, in which case keep it as user.
-        result = _run(root, source_name)
+        result = _attach_health_warnings(_scan_raw(root, source_name))
         if root.resolve() == USER_CLAUDE_DIR.resolve():
             return ScanReport(user=result, project=None, project_root=None)
         return ScanReport(user=None, project=result, project_root=root)
 
-    user_result: ScanResult | None = None
-    if USER_CLAUDE_DIR.is_dir():
-        user_result = _run(USER_CLAUDE_DIR, source_name)
-
+    # Scan both scopes raw, then redistribute project-scoped installations
+    # from the user registry into project.plugins, THEN run health checks —
+    # otherwise a plugin enabled at project scope but installed via the
+    # user-level registry generates a stale "installed but not enabled"
+    # warning at user scope before it's moved.
+    user_raw: ScanResult | None = (
+        _scan_raw(USER_CLAUDE_DIR, source_name) if USER_CLAUDE_DIR.is_dir() else None
+    )
     project_root = find_project_root(Path.cwd())
-    project_result: ScanResult | None = None
-    if project_root is not None:
-        project_result = _run(project_root, source_name)
+    project_raw: ScanResult | None = (
+        _scan_raw(project_root, source_name) if project_root is not None else None
+    )
 
     report = ScanReport(
-        user=user_result, project=project_result, project_root=project_root
+        user=user_raw, project=project_raw, project_root=project_root
     )
     report = redistribute_plugins(report)
+
+    if report.user is not None:
+        report = dataclasses.replace(
+            report, user=_attach_health_warnings(report.user)
+        )
+    if report.project is not None:
+        report = dataclasses.replace(
+            report, project=_attach_health_warnings(report.project)
+        )
     return _attach_cross_scope_warnings(report)
 
 
@@ -161,12 +174,11 @@ def _project_enabled_plugins(
     return enabled
 
 
-def _run(target: Path, source_name: str | None) -> ScanResult:
-    raw = _scan_raw(target, source_name)
+def _attach_health_warnings(raw: ScanResult) -> ScanResult:
     issues = run_health_checks(raw)
-    if issues:
-        return dataclasses.replace(raw, warnings=raw.warnings + tuple(issues))
-    return raw
+    if not issues:
+        return raw
+    return dataclasses.replace(raw, warnings=raw.warnings + tuple(issues))
 
 
 def _scan_raw(root: Path, source_name: str | None) -> ScanResult:
