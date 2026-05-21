@@ -97,16 +97,18 @@ Screen {
     text-style: none;
 }
 
-/* Selection emphasis — highlighted row uses $accent. The focused list
-   gets a stronger tint and bold text so the user always knows which of
+/* Selection emphasis — highlighted row uses `text-style: reverse`
+   instead of a custom background. Reverse swaps fg/bg at render time,
+   so themed glyphs like the `[U]` / `[P]` scope markers stay legible
+   regardless of which theme is active (no fg-on-same-color collisions).
+   The focused list gets bold on top so the user always knows which of
    the three zones the keyboard is driving. */
 ListView > ListItem.--highlight {
-    background: $accent 25%;
+    text-style: reverse;
 }
 
 ListView:focus > ListItem.--highlight {
-    background: $accent 50%;
-    text-style: bold;
+    text-style: bold reverse;
 }
 
 #detail-body {
