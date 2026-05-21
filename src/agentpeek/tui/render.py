@@ -402,6 +402,14 @@ def items_for_report(
     just be noise on every row. The scope is still visible as the
     `[user]` / `[project]` chip on the detail pane.
 
+    For the plugins category, an `[O]` marker (always shown) flags a
+    plugin whose installations all belong to OTHER projects than the
+    one currently active — semantically distinct from `[U]` (truly
+    user-global, i.e. at least one install has `project_path=None`).
+    Without this distinction, an entry tagged `[U]` would imply the
+    plugin applies everywhere when in fact it's scoped to projects you
+    aren't in.
+
     The "skills" category is special-cased to group by source plugin
     rather than scope: each plugin becomes a non-selectable header row
     (payload=None) followed by indented skill rows. The plugin name no
@@ -419,12 +427,31 @@ def items_for_report(
     need_prefix = bool(user_items) and bool(project_items)
     items: list[tuple[Content, object, str]] = []
     for label, payload in user_items:
-        display = _prefix(label, "U", COLOR_PRIMARY) if need_prefix else label
+        display = _user_item_prefix(label, payload, key, need_prefix=need_prefix)
         items.append((display, payload, "user"))
     for label, payload in project_items:
         display = _prefix(label, "P", COLOR_ACCENT) if need_prefix else label
         items.append((display, payload, "project"))
     return items
+
+
+def _user_item_prefix(
+    label: Content, payload: object, key: str, *, need_prefix: bool
+) -> Content:
+    """Choose the scope marker for a user-scope row.
+
+    Plugins whose installs are all tied to other projects get `[O]`
+    (always shown — the truth about where the plugin applies is
+    independent of whether the project scope has other items). Truly
+    user-global plugins and every other category get `[U]` only when
+    both scopes are populated.
+    """
+    if key == "plugins" and isinstance(payload, Plugin):
+        if not any(i.project_path is None for i in payload.installations):
+            return _prefix(label, "O", COLOR_MUTED)
+    if need_prefix:
+        return _prefix(label, "U", COLOR_PRIMARY)
+    return label
 
 
 def _skills_grouped_items(
