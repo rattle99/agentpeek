@@ -18,10 +18,17 @@ class AgentViewApp(App[None]):
     ]
     TITLE = "agentpeek"
 
-    def __init__(self, *, scan_root: Path | None, source_name: str | None) -> None:
+    def __init__(
+        self,
+        *,
+        scan_root: Path | None,
+        source_name: str | None,
+        actions: bool = False,
+    ) -> None:
         super().__init__()
         self._scan_root = scan_root
         self._source_name = source_name
+        self._actions = actions
 
     def rescan(self) -> ScanReport:
         """Re-run the scanner with the cached args and update the subtitle.
@@ -38,4 +45,10 @@ class AgentViewApp(App[None]):
 
     def on_mount(self) -> None:
         report = self.rescan()
-        self.push_screen(MainScreen(report, explicit_root=self._scan_root is not None))
+        self.push_screen(
+            MainScreen(
+                report,
+                explicit_root=self._scan_root is not None,
+                actions=self._actions,
+            )
+        )

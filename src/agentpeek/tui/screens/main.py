@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
@@ -19,7 +20,8 @@ from textual.widgets import (
     Static,
 )
 
-from agentpeek.models import PluginAgent, PluginSkill, ScanReport
+from agentpeek.actions.runner import ActionResult, PluginVerb, Scope, run_plugin
+from agentpeek.models import Plugin, PluginAgent, PluginSkill, ScanReport
 from agentpeek.tui.render import (
     CATEGORIES,
     item_body,
@@ -29,7 +31,9 @@ from agentpeek.tui.render import (
     scope_summary,
     sidebar_count,
 )
+from agentpeek.tui.screens.action_result import ActionResultModal
 from agentpeek.tui.screens.agent_detail import AgentDetailModal
+from agentpeek.tui.screens.confirm import ConfirmModal
 from agentpeek.tui.screens.help import HelpScreen
 from agentpeek.tui.screens.skill_detail import SkillDetailModal
 
@@ -45,6 +49,9 @@ class MainScreen(Screen[None]):
         Binding("o", "open", "Open"),
         Binding("y", "yank", "Yank path"),
         Binding("b", "yank_body", "Yank body"),
+        Binding("u", "update_plugin", "Update plugin"),
+        Binding("t", "toggle_plugin", "Toggle enabled"),
+        Binding("x", "uninstall_plugin", "Uninstall plugin"),
         Binding("slash", "focus_filter", "Filter"),
         Binding("question_mark", "help", "Help"),
         Binding("escape", "clear_filter", show=False),
@@ -54,10 +61,17 @@ class MainScreen(Screen[None]):
     selected_index: reactive[int] = reactive(-1, init=False)
     filter_text: reactive[str] = reactive("", init=False)
 
-    def __init__(self, report: ScanReport, *, explicit_root: bool = False) -> None:
+    def __init__(
+        self,
+        report: ScanReport,
+        *,
+        explicit_root: bool = False,
+        actions: bool = False,
+    ) -> None:
         super().__init__()
         self._report = report
         self._explicit_root = explicit_root
+        self._actions_enabled = actions
         # Per-category cursor memory so switching tabs preserves position.
         self._category_state: dict[str, int] = {}
 
@@ -350,3 +364,108 @@ class MainScreen(Screen[None]):
             if payload is not None:
                 return label.plain
         return None
+
+    # --- write actions (claude plugin CLI) ----------------------------------
+
+    def _current_plugin_and_scope(self) -> tuple[Plugin, Scope] | None:
+        """Resolve current row to (Plugin, scope) if it's a plugin row.
+
+        Returns None and notifies the user otherwise. Used by all per-plugin
+        action handlers.
+        """
+        if self.selected_category != "plugins":
+            self.notify(
+                "Plugin actions only apply in the Plugins category",
+                severity="warning",
+                timeout=2,
+            )
+            return None
+        items = items_for_report(self._report, self.selected_category)
+        idx = self.selected_index
+        if not 0 <= idx < len(items):
+            self.notify("No plugin selected", severity="warning", timeout=2)
+            return None
+        _label, payload, scope = items[idx]
+        if not isinstance(payload, Plugin):
+            self.notify("No plugin selected", severity="warning", timeout=2)
+            return None
+        if scope not in ("user", "project", "local"):
+            self.notify(f"Unsupported scope: {scope}", severity="error", timeout=2)
+            return None
+        return payload, cast("Scope", scope)
+
+    def _require_actions(self) -> bool:
+        if not self._actions_enabled:
+            self.notify(
+                "Write actions disabled — relaunch with --actions",
+                severity="warning",
+                timeout=3,
+            )
+            return False
+        return True
+
+    def action_update_plugin(self) -> None:
+        if not self._require_actions():
+            return
+        pair = self._current_plugin_and_scope()
+        if pair is None:
+            return
+        plugin, scope = pair
+        self.notify(f"Updating {plugin.qualified_id}…", timeout=2)
+        self._run_plugin_action("update", plugin.qualified_id, scope)
+
+    def action_toggle_plugin(self) -> None:
+        if not self._require_actions():
+            return
+        pair = self._current_plugin_and_scope()
+        if pair is None:
+            return
+        plugin, scope = pair
+        verb: PluginVerb = "disable" if plugin.enabled else "enable"
+        self.notify(f"{verb.title()} {plugin.qualified_id}…", timeout=2)
+        self._run_plugin_action(verb, plugin.qualified_id, scope)
+
+    def action_uninstall_plugin(self) -> None:
+        if not self._require_actions():
+            return
+        pair = self._current_plugin_and_scope()
+        if pair is None:
+            return
+        plugin, scope = pair
+        qid = plugin.qualified_id
+
+        def _after_confirm(ok: bool | None) -> None:
+            if not ok:
+                return
+            self.notify(f"Uninstalling {qid}…", timeout=2)
+            self._run_plugin_action("uninstall", qid, scope)
+
+        self.app.push_screen(  # pyright: ignore[reportUnknownMemberType]
+            ConfirmModal(
+                f"Uninstall {qid} from {scope} scope?\n\nThis removes the plugin "
+                "cache and registry entry. Run again to reinstall.",
+                title="Uninstall plugin?",
+            ),
+            _after_confirm,
+        )
+
+    @work(exclusive=True, group="plugin-action")
+    async def _run_plugin_action(
+        self, verb: PluginVerb, qid: str, scope: Scope
+    ) -> None:
+        import asyncio  # noqa: PLC0415
+
+        result = await asyncio.to_thread(run_plugin, verb, qid, scope=scope)
+        await self._after_plugin_action(result)
+
+    async def _after_plugin_action(self, result: ActionResult) -> None:
+        await self.action_refresh()
+        if result.ok:
+            self.notify(
+                f"{result.verb} {result.target}: {result.message}",
+                timeout=4,
+            )
+        else:
+            self.app.push_screen(  # pyright: ignore[reportUnknownMemberType]
+                ActionResultModal(result)
+            )

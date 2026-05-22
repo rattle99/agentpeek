@@ -40,6 +40,12 @@ def main(argv: list[str] | None = None) -> int:
         default="WARNING",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
+    parser.add_argument(
+        "--actions",
+        action="store_true",
+        help="Enable write actions (update/enable/disable/uninstall plugins, "
+        "refresh marketplaces) via the `claude plugin` CLI.",
+    )
     args = parser.parse_args(argv)
     configure_logging(args.log_level)
 
@@ -55,5 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     # TUI into module-load time when only the CLI surface is exercised.
     from agentpeek.tui.app import AgentViewApp  # noqa: PLC0415
 
-    AgentViewApp(scan_root=args.root, source_name=args.source).run()
+    AgentViewApp(
+        scan_root=args.root,
+        source_name=args.source,
+        actions=args.actions,
+    ).run()
     return 0
