@@ -19,7 +19,7 @@ Returned `SlashCommand` / `HookSpec` / `MCPServer` instances carry
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import cast
+from typing import TypeVar, cast
 
 from agentpeek.models import (
     HookSpec,
@@ -151,6 +151,57 @@ def _parse_manifest(
 
 # --- Skills / Agents (frontmatter-bearing single-file resources) ---------
 
+_SkillOrAgent = TypeVar("_SkillOrAgent", PluginSkill, PluginAgent)
+
+
+def _parse_skill_or_agent(
+    md_path: Path,
+    name_fallback: str,
+    *,
+    category: str,
+    qualified_id: str,
+    cls: type[_SkillOrAgent],
+    warnings: list[ScanWarning],
+) -> _SkillOrAgent | None:
+    """Shared parser for skill and agent markdown files.
+
+    Both `PluginSkill` and `PluginAgent` carry the same set of fields, so
+    one helper builds either dataclass from the frontmatter. Returns None
+    if the frontmatter fails to load (warning already attached).
+    """
+    file, warning = load_frontmatter(md_path, category=category)
+    if warning is not None:
+        warnings.append(warning)
+    if file is None:
+        return None
+    name = read_str_field(
+        file.metadata, "name",
+        path=md_path, category=category, warnings=warnings,
+    )
+    return cls(
+        path=md_path,
+        name=name or name_fallback,
+        description=read_str_field(
+            file.metadata, "description",
+            path=md_path, category=category, warnings=warnings,
+        ),
+        body=file.body,
+        source_plugin=qualified_id,
+        when_to_use=read_str_field(
+            file.metadata, "when_to_use",
+            path=md_path, category=category, warnings=warnings,
+        ),
+        user_invocable=_as_optional_bool(file.metadata.get("user-invocable")),
+        allowed_tools=read_string_list_field(
+            file.metadata, "allowed-tools",
+            path=md_path, category=category, warnings=warnings,
+        ),
+        disallowed_tools=read_string_list_field(
+            file.metadata, "disallowed-tools",
+            path=md_path, category=category, warnings=warnings,
+        ),
+    )
+
 
 def _parse_skills(
     skills_dir: Path, warnings: list[ScanWarning], *, qualified_id: str
@@ -164,40 +215,15 @@ def _parse_skills(
         skill_md = sub / "SKILL.md"
         if not skill_md.is_file():
             continue
-        file, warning = load_frontmatter(skill_md, category="plugin_skill")
-        if warning is not None:
-            warnings.append(warning)
-        if file is None:
-            continue
-        name = read_str_field(
-            file.metadata, "name",
-            path=skill_md, category="plugin_skill", warnings=warnings,
+        skill = _parse_skill_or_agent(
+            skill_md, sub.name,
+            category="plugin_skill",
+            qualified_id=qualified_id,
+            cls=PluginSkill,
+            warnings=warnings,
         )
-        results.append(
-            PluginSkill(
-                path=skill_md,
-                name=name or sub.name,
-                description=read_str_field(
-                    file.metadata, "description",
-                    path=skill_md, category="plugin_skill", warnings=warnings,
-                ),
-                body=file.body,
-                source_plugin=qualified_id,
-                when_to_use=read_str_field(
-                    file.metadata, "when_to_use",
-                    path=skill_md, category="plugin_skill", warnings=warnings,
-                ),
-                user_invocable=_as_optional_bool(file.metadata.get("user-invocable")),
-                allowed_tools=read_string_list_field(
-                    file.metadata, "allowed-tools",
-                    path=skill_md, category="plugin_skill", warnings=warnings,
-                ),
-                disallowed_tools=read_string_list_field(
-                    file.metadata, "disallowed-tools",
-                    path=skill_md, category="plugin_skill", warnings=warnings,
-                ),
-            )
-        )
+        if skill is not None:
+            results.append(skill)
     return tuple(results)
 
 
@@ -208,40 +234,15 @@ def _parse_agents(
         return ()
     results: list[PluginAgent] = []
     for md in sorted(agents_dir.glob("*.md")):
-        file, warning = load_frontmatter(md, category="plugin_agent")
-        if warning is not None:
-            warnings.append(warning)
-        if file is None:
-            continue
-        name = read_str_field(
-            file.metadata, "name",
-            path=md, category="plugin_agent", warnings=warnings,
+        agent = _parse_skill_or_agent(
+            md, md.stem,
+            category="plugin_agent",
+            qualified_id=qualified_id,
+            cls=PluginAgent,
+            warnings=warnings,
         )
-        results.append(
-            PluginAgent(
-                path=md,
-                name=name or md.stem,
-                description=read_str_field(
-                    file.metadata, "description",
-                    path=md, category="plugin_agent", warnings=warnings,
-                ),
-                body=file.body,
-                source_plugin=qualified_id,
-                when_to_use=read_str_field(
-                    file.metadata, "when_to_use",
-                    path=md, category="plugin_agent", warnings=warnings,
-                ),
-                user_invocable=_as_optional_bool(file.metadata.get("user-invocable")),
-                allowed_tools=read_string_list_field(
-                    file.metadata, "allowed-tools",
-                    path=md, category="plugin_agent", warnings=warnings,
-                ),
-                disallowed_tools=read_string_list_field(
-                    file.metadata, "disallowed-tools",
-                    path=md, category="plugin_agent", warnings=warnings,
-                ),
-            )
-        )
+        if agent is not None:
+            results.append(agent)
     return tuple(results)
 
 

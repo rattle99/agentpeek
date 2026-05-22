@@ -63,8 +63,16 @@ def scan(root: Path | None = None, source_name: str | None = None) -> ScanReport
     report = ScanReport(
         user=user_raw, project=project_raw, project_root=project_root
     )
-    report = redistribute_plugins(report)
+    return _finalize_report(redistribute_plugins(report))
 
+
+def _finalize_report(report: ScanReport) -> ScanReport:
+    """Attach per-scope health warnings + cross-scope warnings.
+
+    Runs after `redistribute_plugins` so that project-scoped installs
+    moved out of the user registry don't trigger stale health warnings
+    at user scope.
+    """
     if report.user is not None:
         report = dataclasses.replace(
             report, user=_attach_health_warnings(report.user)

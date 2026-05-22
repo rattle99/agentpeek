@@ -58,6 +58,8 @@ class MainScreen(Screen[None]):
         super().__init__()
         self._report = report
         self._explicit_root = explicit_root
+        # Per-category cursor memory so switching tabs preserves position.
+        self._category_state: dict[str, int] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -114,7 +116,9 @@ class MainScreen(Screen[None]):
     async def watch_selected_category(self, _category: str) -> None:
         await self._rebuild_items()
 
-    async def watch_selected_index(self, _idx: int) -> None:
+    async def watch_selected_index(self, idx: int) -> None:
+        if idx >= 0:
+            self._category_state[self.selected_category] = idx
         await self._refresh_detail()
 
     async def watch_filter_text(self, _text: str) -> None:
@@ -162,9 +166,22 @@ class MainScreen(Screen[None]):
             )
         else:
             title.update(f"{name}  ({selectable_count})")
-        if first_selectable is not None:
-            item_list.index = first_selectable
-            self.selected_index = first_selectable
+        # Restore prior cursor position for this category when it still
+        # points to a selectable (non-header) row; otherwise fall back to
+        # the first selectable row.
+        target: int | None = None
+        saved = self._category_state.get(self.selected_category)
+        if (
+            saved is not None
+            and 0 <= saved < len(items)
+            and items[saved][1] is not None
+        ):
+            target = saved
+        elif first_selectable is not None:
+            target = first_selectable
+        if target is not None:
+            item_list.index = target
+            self.selected_index = target
         else:
             self.selected_index = -1
         await self._refresh_detail()

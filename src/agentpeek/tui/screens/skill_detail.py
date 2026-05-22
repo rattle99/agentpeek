@@ -17,7 +17,7 @@ class SkillDetailModal(ModalScreen[None]):
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("q,escape", "dismiss_modal", "Close"),
+        Binding("q,question_mark,escape", "dismiss_modal", "Close"),
     ]
 
     def __init__(self, skill: PluginSkill) -> None:
