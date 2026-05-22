@@ -27,7 +27,13 @@ from agentpeek.actions.runner import (
     run_marketplace_update,
     run_plugin,
 )
-from agentpeek.models import Plugin, PluginAgent, PluginSkill, ScanReport
+from agentpeek.models import (
+    Plugin,
+    PluginAgent,
+    PluginInstallation,
+    PluginSkill,
+    ScanReport,
+)
 from agentpeek.tui.render import (
     CATEGORIES,
     item_body,
@@ -385,11 +391,70 @@ class MainScreen(Screen[None]):
 
     # --- write actions (claude plugin CLI) ----------------------------------
 
+    def _no_install_message(self, plugin: Plugin, bucket: str) -> str:
+        """Error text for the 'no install for this cwd' case.
+
+        The user bucket aggregates truly-user-global installs AND plugins
+        whose installations all live in other projects (the `[O]` marker
+        case). Both render as user-bucket rows, but only the first is
+        actionable from the current cwd. When the lookup fails, surface
+        the actual install dirs so the user knows where to `cd` to.
+        """
+        qid = plugin.qualified_id
+        other_dirs = [
+            str(i.project_path)
+            for i in plugin.installations
+            if i.project_path is not None
+        ]
+        if bucket == "user" and other_dirs:
+            shown = ", ".join(other_dirs[:2]) + (
+                f", …(+{len(other_dirs) - 2} more)" if len(other_dirs) > 2 else ""
+            )
+            return (
+                f"{qid}: no install for this cwd. "
+                f"All installs are in other projects: {shown}"
+            )
+        return f"{qid}: no installation matches this {bucket}-scope row"
+
+    def _installation_for_bucket(
+        self, plugin: Plugin, bucket: str
+    ) -> PluginInstallation | None:
+        """Pick the installation that backs a plugin row in a given bucket.
+
+        Buckets in the TUI are "user" / "project" — set by the scanner's
+        `redistribute_plugins`, which moves any installation whose
+        `project_path` matches the current project root into the project
+        bucket regardless of whether the installation's own `scope` is
+        `project` or `local`. So the bucket label and the `--scope` flag
+        are not interchangeable; we need the installation's true scope.
+        """
+        if bucket == "user":
+            for inst in plugin.installations:
+                if inst.project_path is None:
+                    return inst
+            return None
+        if bucket == "project":
+            root = self._report.project_root
+            if root is None:
+                return None
+            # `report.project_root` is the `.claude/` dir; `inst.project_path`
+            # is the project dir that contains it. Mirror scanner.py:157.
+            project_dir = root.parent.resolve()
+            for inst in plugin.installations:
+                if (
+                    inst.project_path is not None
+                    and inst.project_path.resolve() == project_dir
+                ):
+                    return inst
+            return None
+        return None
+
     def _current_plugin_and_scope(self) -> tuple[Plugin, Scope] | None:
         """Resolve current row to (Plugin, scope) if it's a plugin row.
 
-        Returns None and notifies the user otherwise. Used by all per-plugin
-        action handlers.
+        `scope` is the *installation's* scope (user/project/local), looked up
+        from `Plugin.installations` — not the bucket label from the row. See
+        `_installation_for_bucket` for why those can differ.
         """
         if self.selected_category != "plugins":
             self.notify(
@@ -403,14 +468,26 @@ class MainScreen(Screen[None]):
         if not 0 <= idx < len(items):
             self.notify("No plugin selected", severity="warning", timeout=2)
             return None
-        _label, payload, scope = items[idx]
+        _label, payload, bucket = items[idx]
         if not isinstance(payload, Plugin):
             self.notify("No plugin selected", severity="warning", timeout=2)
             return None
-        if scope not in ("user", "project", "local"):
-            self.notify(f"Unsupported scope: {scope}", severity="error", timeout=2)
+        inst = self._installation_for_bucket(payload, bucket)
+        if inst is None:
+            self.notify(
+                self._no_install_message(payload, bucket),
+                severity="error",
+                timeout=6,
+            )
             return None
-        return payload, cast("Scope", scope)
+        if inst.scope not in ("user", "project", "local", "managed"):
+            self.notify(
+                f"Unsupported install scope: {inst.scope}",
+                severity="error",
+                timeout=3,
+            )
+            return None
+        return payload, cast("Scope", inst.scope)
 
     def _require_actions(self) -> bool:
         if not self._actions_enabled:
@@ -528,19 +605,18 @@ class MainScreen(Screen[None]):
     def _all_plugin_targets(self) -> list[tuple[str, Scope]]:
         """Collect (qualified_id, scope) pairs for every installed plugin row.
 
-        Mirrors what the user sees in the Plugins category: group headers
-        (payload=None) are skipped; per-scope rows are emitted in display
-        order. The same plugin appearing in both user and project scope
-        yields two pairs — that matches what `claude plugin update --scope`
-        needs (it's scope-specific).
+        Mirrors what the user sees in the Plugins category. The `scope`
+        field is the installation's true scope (user/project/local), not
+        the bucket label — see `_installation_for_bucket` for why.
         """
         pairs: list[tuple[str, Scope]] = []
-        for _label, payload, scope in items_for_report(self._report, "plugins"):
+        for _label, payload, bucket in items_for_report(self._report, "plugins"):
             if not isinstance(payload, Plugin):
                 continue
-            if scope not in ("user", "project", "local"):
+            inst = self._installation_for_bucket(payload, bucket)
+            if inst is None or inst.scope not in ("user", "project", "local", "managed"):
                 continue
-            pairs.append((payload.qualified_id, cast("Scope", scope)))
+            pairs.append((payload.qualified_id, cast("Scope", inst.scope)))
         return pairs
 
     @work(exclusive=True, group="claude-plugin-write")

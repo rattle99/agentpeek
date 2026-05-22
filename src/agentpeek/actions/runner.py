@@ -12,7 +12,11 @@ from dataclasses import dataclass
 from typing import Literal
 
 PluginVerb = Literal["enable", "disable", "update", "uninstall", "install"]
-Scope = Literal["user", "project", "local"]
+# `managed` is accepted by `claude plugin update` for enterprise-pushed
+# plugins; enable/disable/uninstall do not accept it. If a managed-scope
+# plugin is targeted with a non-update verb, the CLI surfaces a clear error
+# in the result modal.
+Scope = Literal["user", "project", "local", "managed"]
 
 _TIMEOUT_SECONDS = 60
 
