@@ -23,6 +23,7 @@ Requires Python ≥ 3.11. Linux and macOS only.
 - **Plugin contents** — every installed plugin is opened up: manifest, skills, agents, slash commands, hooks, MCP servers. Plugin-contributed commands / hooks / MCPs also merge into the top-level categories with a `[plug:<id>]` provenance tag.
 - **Auto-memory** — Claude Code project memories (under `~/.claude/projects/<encoded>/memory/`) are scanned and labelled with their actual project path (resolved from session logs, not the lossy directory encoding).
 - **Health checks** — orphan hook scripts, missing plugin install paths, conflicting key bindings, scope override conflicts, cross-scope layered memory, hooks referencing dynamic env vars (`${CLAUDE_PROJECT_DIR}`, `$HOME`, …) flagged so you know which won't resolve at scan time, and more. Severity-coloured warning cards in the detail pane.
+- **Write actions** — update, enable/disable, uninstall a plugin or refresh a marketplace without leaving the TUI. Calls shell out to `claude plugin …`; agentpeek never edits Claude state files directly. Re-scan is automatic after every action. Pass `--read-only` to disable.
 
 ## Keybindings
 
@@ -35,6 +36,11 @@ Requires Python ≥ 3.11. Linux and macOS only.
 | `o` | Open the highlighted item's file in `$EDITOR` (TUI suspends + resumes) |
 | `y` | Yank the highlighted item's path to the clipboard (OSC 52) |
 | `b` | Yank the rendered body — works on memory entries, slash commands, skills, agents, hooks |
+| `u` | Update the highlighted plugin |
+| `U` | Update all installed plugins (progress in the title bar) |
+| `t` | Toggle enable / disable for the highlighted plugin |
+| `x` | Uninstall the highlighted plugin (confirms first) |
+| `M` | Refresh the highlighted marketplace |
 | `/` | Show + focus the filter input (live-filters the items list) |
 | `Esc` | Clear filter and refocus items |
 | `?` | Help overlay listing every binding |
