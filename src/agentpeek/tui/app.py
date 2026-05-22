@@ -23,7 +23,7 @@ class AgentViewApp(App[None]):
         *,
         scan_root: Path | None,
         source_name: str | None,
-        actions: bool = False,
+        actions: bool = True,
     ) -> None:
         super().__init__()
         self._scan_root = scan_root

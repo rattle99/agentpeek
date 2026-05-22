@@ -80,7 +80,7 @@ class MainScreen(Screen[None]):
         report: ScanReport,
         *,
         explicit_root: bool = False,
-        actions: bool = False,
+        actions: bool = True,
     ) -> None:
         super().__init__()
         self._report = report
@@ -492,7 +492,7 @@ class MainScreen(Screen[None]):
     def _require_actions(self) -> bool:
         if not self._actions_enabled:
             self.notify(
-                "Write actions disabled — relaunch with --actions",
+                "Read-only mode — relaunch without --read-only to enable actions",
                 severity="warning",
                 timeout=3,
             )

@@ -41,10 +41,11 @@ def main(argv: list[str] | None = None) -> int:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
     parser.add_argument(
-        "--actions",
+        "--read-only",
         action="store_true",
-        help="Enable write actions (update/enable/disable/uninstall plugins, "
-        "refresh marketplaces) via the `claude plugin` CLI.",
+        help="Disable write actions. By default the TUI exposes update / "
+        "enable / disable / uninstall / marketplace-refresh bindings that "
+        "shell out to the `claude plugin` CLI.",
     )
     args = parser.parse_args(argv)
     configure_logging(args.log_level)
@@ -64,6 +65,6 @@ def main(argv: list[str] | None = None) -> int:
     AgentViewApp(
         scan_root=args.root,
         source_name=args.source,
-        actions=args.actions,
+        actions=not args.read_only,
     ).run()
     return 0
