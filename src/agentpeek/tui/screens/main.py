@@ -341,6 +341,15 @@ class MainScreen(Screen[None]):
 
     async def action_refresh(self) -> None:
         """Re-scan disk and rebuild every list/count/detail in place."""
+        await self._rescan_and_rebuild(notify=True)
+
+    async def _rescan_and_rebuild(self, *, notify: bool) -> None:
+        """Shared core for `action_refresh` and post-action refreshes.
+
+        `notify=False` is what the write-action handlers use, so the
+        success/failure toast for the action isn't shadowed by a generic
+        "Rescanned" message.
+        """
         prev_label = self._current_item_label()
         app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
         self._report = app.rescan()
@@ -355,14 +364,15 @@ class MainScreen(Screen[None]):
         await self.watch_selected_category(self.selected_category)
         if prev_label is not None:
             current = self._current_item_label()
-            if current != prev_label:
+            if current != prev_label and notify:
                 self.notify(
                     f"Selection reset (was: {prev_label})",
                     severity="warning",
                     timeout=3,
                 )
                 return
-        self.notify("Rescanned", timeout=2)
+        if notify:
+            self.notify("Rescanned", timeout=2)
 
     def _current_item_label(self) -> str | None:
         items = items_for_report(self._report, self.selected_category)
@@ -457,7 +467,7 @@ class MainScreen(Screen[None]):
             _after_confirm,
         )
 
-    @work(exclusive=True, group="plugin-action")
+    @work(exclusive=True, group="claude-plugin-write")
     async def _run_plugin_action(
         self, verb: PluginVerb, qid: str, scope: Scope
     ) -> None:
@@ -467,7 +477,7 @@ class MainScreen(Screen[None]):
         await self._after_plugin_action(result)
 
     async def _after_plugin_action(self, result: ActionResult) -> None:
-        await self.action_refresh()
+        await self._rescan_and_rebuild(notify=False)
         if result.ok:
             self.notify(
                 f"{result.verb} {result.target}: {result.message}",
@@ -533,7 +543,7 @@ class MainScreen(Screen[None]):
             pairs.append((payload.qualified_id, cast("Scope", scope)))
         return pairs
 
-    @work(exclusive=True, group="bulk-update")
+    @work(exclusive=True, group="claude-plugin-write")
     async def _run_bulk_update(self, pairs: list[tuple[str, Scope]]) -> None:
         """Serial bulk-update worker.
 
@@ -595,7 +605,7 @@ class MainScreen(Screen[None]):
         self.notify(f"Refreshing {target}…", timeout=2)
         self._run_marketplace_refresh(name)
 
-    @work(exclusive=True, group="marketplace-refresh")
+    @work(exclusive=True, group="claude-plugin-write")
     async def _run_marketplace_refresh(self, name: str | None) -> None:
         import asyncio  # noqa: PLC0415
 
