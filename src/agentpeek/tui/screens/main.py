@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
@@ -19,7 +20,20 @@ from textual.widgets import (
     Static,
 )
 
-from agentpeek.models import PluginAgent, PluginSkill, ScanReport
+from agentpeek.actions.runner import (
+    ActionResult,
+    PluginVerb,
+    Scope,
+    run_marketplace_update,
+    run_plugin,
+)
+from agentpeek.models import (
+    Plugin,
+    PluginAgent,
+    PluginInstallation,
+    PluginSkill,
+    ScanReport,
+)
 from agentpeek.tui.render import (
     CATEGORIES,
     item_body,
@@ -29,7 +43,9 @@ from agentpeek.tui.render import (
     scope_summary,
     sidebar_count,
 )
+from agentpeek.tui.screens.action_result import ActionResultModal
 from agentpeek.tui.screens.agent_detail import AgentDetailModal
+from agentpeek.tui.screens.confirm import ConfirmModal
 from agentpeek.tui.screens.help import HelpScreen
 from agentpeek.tui.screens.skill_detail import SkillDetailModal
 
@@ -45,6 +61,11 @@ class MainScreen(Screen[None]):
         Binding("o", "open", "Open"),
         Binding("y", "yank", "Yank path"),
         Binding("b", "yank_body", "Yank body"),
+        Binding("u", "update_plugin", "Update plugin"),
+        Binding("U", "update_all_plugins", "Update all"),
+        Binding("t", "toggle_plugin", "Toggle enabled"),
+        Binding("x", "uninstall_plugin", "Uninstall plugin"),
+        Binding("M", "refresh_marketplace", "Refresh market(s)"),
         Binding("slash", "focus_filter", "Filter"),
         Binding("question_mark", "help", "Help"),
         Binding("escape", "clear_filter", show=False),
@@ -54,10 +75,17 @@ class MainScreen(Screen[None]):
     selected_index: reactive[int] = reactive(-1, init=False)
     filter_text: reactive[str] = reactive("", init=False)
 
-    def __init__(self, report: ScanReport, *, explicit_root: bool = False) -> None:
+    def __init__(
+        self,
+        report: ScanReport,
+        *,
+        explicit_root: bool = False,
+        actions: bool = True,
+    ) -> None:
         super().__init__()
         self._report = report
         self._explicit_root = explicit_root
+        self._actions_enabled = actions
         # Per-category cursor memory so switching tabs preserves position.
         self._category_state: dict[str, int] = {}
 
@@ -319,6 +347,15 @@ class MainScreen(Screen[None]):
 
     async def action_refresh(self) -> None:
         """Re-scan disk and rebuild every list/count/detail in place."""
+        await self._rescan_and_rebuild(notify=True)
+
+    async def _rescan_and_rebuild(self, *, notify: bool) -> None:
+        """Shared core for `action_refresh` and post-action refreshes.
+
+        `notify=False` is what the write-action handlers use, so the
+        success/failure toast for the action isn't shadowed by a generic
+        "Rescanned" message.
+        """
         prev_label = self._current_item_label()
         app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
         self._report = app.rescan()
@@ -333,14 +370,15 @@ class MainScreen(Screen[None]):
         await self.watch_selected_category(self.selected_category)
         if prev_label is not None:
             current = self._current_item_label()
-            if current != prev_label:
+            if current != prev_label and notify:
                 self.notify(
                     f"Selection reset (was: {prev_label})",
                     severity="warning",
                     timeout=3,
                 )
                 return
-        self.notify("Rescanned", timeout=2)
+        if notify:
+            self.notify("Rescanned", timeout=2)
 
     def _current_item_label(self) -> str | None:
         items = items_for_report(self._report, self.selected_category)
@@ -350,3 +388,302 @@ class MainScreen(Screen[None]):
             if payload is not None:
                 return label.plain
         return None
+
+    # --- write actions (claude plugin CLI) ----------------------------------
+
+    def _no_install_message(self, plugin: Plugin, bucket: str) -> str:
+        """Error text for the 'no install for this cwd' case.
+
+        The user bucket aggregates truly-user-global installs AND plugins
+        whose installations all live in other projects (the `[O]` marker
+        case). Both render as user-bucket rows, but only the first is
+        actionable from the current cwd. When the lookup fails, surface
+        the actual install dirs so the user knows where to `cd` to.
+        """
+        qid = plugin.qualified_id
+        other_dirs = [
+            str(i.project_path)
+            for i in plugin.installations
+            if i.project_path is not None
+        ]
+        if bucket == "user" and other_dirs:
+            shown = ", ".join(other_dirs[:2]) + (
+                f", …(+{len(other_dirs) - 2} more)" if len(other_dirs) > 2 else ""
+            )
+            return (
+                f"{qid}: no install for this cwd. "
+                f"All installs are in other projects: {shown}"
+            )
+        return f"{qid}: no installation matches this {bucket}-scope row"
+
+    def _installation_for_bucket(
+        self, plugin: Plugin, bucket: str
+    ) -> PluginInstallation | None:
+        """Pick the installation that backs a plugin row in a given bucket.
+
+        Buckets in the TUI are "user" / "project" — set by the scanner's
+        `redistribute_plugins`, which moves any installation whose
+        `project_path` matches the current project root into the project
+        bucket regardless of whether the installation's own `scope` is
+        `project` or `local`. So the bucket label and the `--scope` flag
+        are not interchangeable; we need the installation's true scope.
+        """
+        if bucket == "user":
+            for inst in plugin.installations:
+                if inst.project_path is None:
+                    return inst
+            return None
+        if bucket == "project":
+            root = self._report.project_root
+            if root is None:
+                return None
+            # `report.project_root` is the `.claude/` dir; `inst.project_path`
+            # is the project dir that contains it. Mirror scanner.py:157.
+            project_dir = root.parent.resolve()
+            for inst in plugin.installations:
+                if (
+                    inst.project_path is not None
+                    and inst.project_path.resolve() == project_dir
+                ):
+                    return inst
+            return None
+        return None
+
+    def _current_plugin_and_scope(self) -> tuple[Plugin, Scope] | None:
+        """Resolve current row to (Plugin, scope) if it's a plugin row.
+
+        `scope` is the *installation's* scope (user/project/local), looked up
+        from `Plugin.installations` — not the bucket label from the row. See
+        `_installation_for_bucket` for why those can differ.
+        """
+        if self.selected_category != "plugins":
+            self.notify(
+                "Plugin actions only apply in the Plugins category",
+                severity="warning",
+                timeout=2,
+            )
+            return None
+        items = items_for_report(self._report, self.selected_category)
+        idx = self.selected_index
+        if not 0 <= idx < len(items):
+            self.notify("No plugin selected", severity="warning", timeout=2)
+            return None
+        _label, payload, bucket = items[idx]
+        if not isinstance(payload, Plugin):
+            self.notify("No plugin selected", severity="warning", timeout=2)
+            return None
+        inst = self._installation_for_bucket(payload, bucket)
+        if inst is None:
+            self.notify(
+                self._no_install_message(payload, bucket),
+                severity="error",
+                timeout=6,
+            )
+            return None
+        if inst.scope not in ("user", "project", "local", "managed"):
+            self.notify(
+                f"Unsupported install scope: {inst.scope}",
+                severity="error",
+                timeout=3,
+            )
+            return None
+        return payload, cast("Scope", inst.scope)
+
+    def _require_actions(self) -> bool:
+        if not self._actions_enabled:
+            self.notify(
+                "Read-only mode — relaunch without --read-only to enable actions",
+                severity="warning",
+                timeout=3,
+            )
+            return False
+        return True
+
+    def action_update_plugin(self) -> None:
+        if not self._require_actions():
+            return
+        pair = self._current_plugin_and_scope()
+        if pair is None:
+            return
+        plugin, scope = pair
+        self.notify(f"Updating {plugin.qualified_id}…", timeout=2)
+        self._run_plugin_action("update", plugin.qualified_id, scope)
+
+    def action_toggle_plugin(self) -> None:
+        if not self._require_actions():
+            return
+        pair = self._current_plugin_and_scope()
+        if pair is None:
+            return
+        plugin, scope = pair
+        verb: PluginVerb = "disable" if plugin.enabled else "enable"
+        self.notify(f"{verb.title()} {plugin.qualified_id}…", timeout=2)
+        self._run_plugin_action(verb, plugin.qualified_id, scope)
+
+    def action_uninstall_plugin(self) -> None:
+        if not self._require_actions():
+            return
+        pair = self._current_plugin_and_scope()
+        if pair is None:
+            return
+        plugin, scope = pair
+        qid = plugin.qualified_id
+
+        def _after_confirm(ok: bool | None) -> None:
+            if not ok:
+                return
+            self.notify(f"Uninstalling {qid}…", timeout=2)
+            self._run_plugin_action("uninstall", qid, scope)
+
+        self.app.push_screen(  # pyright: ignore[reportUnknownMemberType]
+            ConfirmModal(
+                f"Uninstall {qid} from {scope} scope?\n\nThis removes the plugin "
+                "cache and registry entry. Run again to reinstall.",
+                title="Uninstall plugin?",
+            ),
+            _after_confirm,
+        )
+
+    @work(exclusive=True, group="claude-plugin-write")
+    async def _run_plugin_action(
+        self, verb: PluginVerb, qid: str, scope: Scope
+    ) -> None:
+        import asyncio  # noqa: PLC0415
+
+        result = await asyncio.to_thread(run_plugin, verb, qid, scope=scope)
+        await self._after_plugin_action(result)
+
+    async def _after_plugin_action(self, result: ActionResult) -> None:
+        await self._rescan_and_rebuild(notify=False)
+        if result.ok:
+            self.notify(
+                f"{result.verb} {result.target}: {result.message}",
+                timeout=4,
+            )
+        else:
+            self.app.push_screen(  # pyright: ignore[reportUnknownMemberType]
+                ActionResultModal(result)
+            )
+
+    def action_update_all_plugins(self) -> None:
+        if not self._require_actions():
+            return
+        if self.selected_category != "plugins":
+            self.notify(
+                "Bulk update only applies in the Plugins category",
+                severity="warning",
+                timeout=2,
+            )
+            return
+        pairs = self._all_plugin_targets()
+        if not pairs:
+            self.notify("No plugins to update", severity="warning", timeout=2)
+            return
+
+        def _after_confirm(ok: bool | None) -> None:
+            if not ok:
+                return
+            self.notify(
+                f"Updating {len(pairs)} plugins serially "
+                "(~5-7s each, no progress display)…",
+                timeout=4,
+            )
+            self._run_bulk_update(pairs)
+
+        if len(pairs) > 5:
+            self.app.push_screen(  # pyright: ignore[reportUnknownMemberType]
+                ConfirmModal(
+                    f"Update {len(pairs)} plugins serially?\n"
+                    "Each call can take a few seconds (git pull).",
+                    title="Update all plugins?",
+                ),
+                _after_confirm,
+            )
+        else:
+            _after_confirm(True)
+
+    def _all_plugin_targets(self) -> list[tuple[str, Scope]]:
+        """Collect (qualified_id, scope) pairs for every installed plugin row.
+
+        Mirrors what the user sees in the Plugins category. The `scope`
+        field is the installation's true scope (user/project/local), not
+        the bucket label — see `_installation_for_bucket` for why.
+        """
+        pairs: list[tuple[str, Scope]] = []
+        for _label, payload, bucket in items_for_report(self._report, "plugins"):
+            if not isinstance(payload, Plugin):
+                continue
+            inst = self._installation_for_bucket(payload, bucket)
+            if inst is None or inst.scope not in ("user", "project", "local", "managed"):
+                continue
+            pairs.append((payload.qualified_id, cast("Scope", inst.scope)))
+        return pairs
+
+    @work(exclusive=True, group="claude-plugin-write")
+    async def _run_bulk_update(self, pairs: list[tuple[str, Scope]]) -> None:
+        """Serial bulk-update worker.
+
+        Progress is surfaced via `app.sub_title` (the header subtitle).
+        Textual 8.x's `ModalScreen` has a dismissal-deadlock for the
+        modal-with-scrollable-content shape we'd otherwise want here
+        (issues #5596, #5008, #4552); the subtitle gives live progress
+        without any modal lifecycle.
+        """
+        import asyncio  # noqa: PLC0415
+
+        original_subtitle = self.app.sub_title
+        ok_count = 0
+        fail_count = 0
+        failures: list[str] = []
+        total = len(pairs)
+        try:
+            for i, (qid, scope) in enumerate(pairs, start=1):
+                self.app.sub_title = (
+                    f"bulk-update ({i}/{total}) {qid} [{scope}]…"
+                )
+                result = await asyncio.to_thread(
+                    run_plugin, "update", qid, scope=scope
+                )
+                if result.ok:
+                    ok_count += 1
+                else:
+                    fail_count += 1
+                    failures.append(f"{qid}: {result.message}")
+        finally:
+            self.app.sub_title = original_subtitle
+        summary = (
+            f"Bulk update done — {ok_count} ok, {fail_count} failed. "
+            "Press r to refresh, restart Claude Code to apply."
+        )
+        if failures:
+            summary += "\n\nFailures:\n" + "\n".join(failures[:5])
+            if len(failures) > 5:
+                summary += f"\n…(+{len(failures) - 5} more)"
+        self.notify(summary, timeout=15, severity="warning" if failures else "information")
+
+    def action_refresh_marketplace(self) -> None:
+        """Refresh the current plugin's marketplace, or all marketplaces.
+
+        When the cursor is on a plugin row, refresh only that plugin's
+        marketplace. Otherwise refresh every configured marketplace.
+        """
+        if not self._require_actions():
+            return
+        name: str | None = None
+        if self.selected_category == "plugins":
+            items = items_for_report(self._report, "plugins")
+            idx = self.selected_index
+            if 0 <= idx < len(items):
+                _label, payload, _scope = items[idx]
+                if isinstance(payload, Plugin) and payload.marketplace:
+                    name = payload.marketplace
+        target = name or "all marketplaces"
+        self.notify(f"Refreshing {target}…", timeout=2)
+        self._run_marketplace_refresh(name)
+
+    @work(exclusive=True, group="claude-plugin-write")
+    async def _run_marketplace_refresh(self, name: str | None) -> None:
+        import asyncio  # noqa: PLC0415
+
+        result = await asyncio.to_thread(run_marketplace_update, name)
+        await self._after_plugin_action(result)

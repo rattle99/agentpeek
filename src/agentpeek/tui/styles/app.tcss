@@ -281,3 +281,76 @@ AgentDetailModal #agent-modal-body {
     height: 1fr;
     background: $surface;
 }
+
+/* Confirm modal — yes/no prompt used before destructive actions. */
+ConfirmModal {
+    align: center middle;
+    background: $background 60%;
+}
+
+ConfirmModal > #confirm-card {
+    width: 60;
+    height: auto;
+    max-height: 16;
+    background: $surface;
+    border: round $warning;
+    padding: 1 2;
+}
+
+ConfirmModal #confirm-title {
+    text-style: bold;
+    color: $warning;
+    padding-bottom: 1;
+}
+
+ConfirmModal #confirm-body {
+    height: auto;
+    padding-bottom: 1;
+}
+
+ConfirmModal #confirm-buttons {
+    height: auto;
+    align-horizontal: right;
+}
+
+ConfirmModal Button {
+    margin-left: 1;
+}
+
+/* Action result modal — surfaces stdout/stderr from a claude-plugin call. */
+ActionResultModal {
+    align: center middle;
+    background: $background 60%;
+}
+
+ActionResultModal > #action-result-card {
+    width: 80%;
+    height: 70%;
+    background: $surface;
+    border: round $accent;
+    padding: 1 2;
+}
+
+ActionResultModal #action-result-title {
+    padding-bottom: 0;
+}
+
+ActionResultModal #action-result-meta {
+    color: $text-muted;
+    padding-bottom: 1;
+}
+
+ActionResultModal #action-result-body {
+    height: 1fr;
+    background: $surface;
+}
+
+ActionResultModal .action-result-section-title {
+    text-style: bold;
+    color: $accent;
+    padding-top: 1;
+}
+
+ActionResultModal .action-result-stream {
+    background: $surface;
+}

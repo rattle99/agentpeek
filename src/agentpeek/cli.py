@@ -40,6 +40,13 @@ def main(argv: list[str] | None = None) -> int:
         default="WARNING",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Disable write actions. By default the TUI exposes update / "
+        "enable / disable / uninstall / marketplace-refresh bindings that "
+        "shell out to the `claude plugin` CLI.",
+    )
     args = parser.parse_args(argv)
     configure_logging(args.log_level)
 
@@ -55,5 +62,9 @@ def main(argv: list[str] | None = None) -> int:
     # TUI into module-load time when only the CLI surface is exercised.
     from agentpeek.tui.app import AgentViewApp  # noqa: PLC0415
 
-    AgentViewApp(scan_root=args.root, source_name=args.source).run()
+    AgentViewApp(
+        scan_root=args.root,
+        source_name=args.source,
+        actions=not args.read_only,
+    ).run()
     return 0
