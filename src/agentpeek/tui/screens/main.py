@@ -50,6 +50,7 @@ class MainScreen(Screen[None]):
         Binding("y", "yank", "Yank path"),
         Binding("b", "yank_body", "Yank body"),
         Binding("u", "update_plugin", "Update plugin"),
+        Binding("U", "update_all_plugins", "Update all"),
         Binding("t", "toggle_plugin", "Toggle enabled"),
         Binding("x", "uninstall_plugin", "Uninstall plugin"),
         Binding("slash", "focus_filter", "Filter"),
@@ -469,3 +470,100 @@ class MainScreen(Screen[None]):
             self.app.push_screen(  # pyright: ignore[reportUnknownMemberType]
                 ActionResultModal(result)
             )
+
+    def action_update_all_plugins(self) -> None:
+        if not self._require_actions():
+            return
+        if self.selected_category != "plugins":
+            self.notify(
+                "Bulk update only applies in the Plugins category",
+                severity="warning",
+                timeout=2,
+            )
+            return
+        pairs = self._all_plugin_targets()
+        if not pairs:
+            self.notify("No plugins to update", severity="warning", timeout=2)
+            return
+
+        def _after_confirm(ok: bool | None) -> None:
+            if not ok:
+                return
+            self.notify(
+                f"Updating {len(pairs)} plugins serially "
+                "(~5-7s each, no progress display)…",
+                timeout=4,
+            )
+            self._run_bulk_update(pairs)
+
+        if len(pairs) > 5:
+            self.app.push_screen(  # pyright: ignore[reportUnknownMemberType]
+                ConfirmModal(
+                    f"Update {len(pairs)} plugins serially?\n"
+                    "Each call can take a few seconds (git pull).",
+                    title="Update all plugins?",
+                ),
+                _after_confirm,
+            )
+        else:
+            _after_confirm(True)
+
+    def _all_plugin_targets(self) -> list[tuple[str, Scope]]:
+        """Collect (qualified_id, scope) pairs for every installed plugin row.
+
+        Mirrors what the user sees in the Plugins category: group headers
+        (payload=None) are skipped; per-scope rows are emitted in display
+        order. The same plugin appearing in both user and project scope
+        yields two pairs — that matches what `claude plugin update --scope`
+        needs (it's scope-specific).
+        """
+        pairs: list[tuple[str, Scope]] = []
+        for _label, payload, scope in items_for_report(self._report, "plugins"):
+            if not isinstance(payload, Plugin):
+                continue
+            if scope not in ("user", "project", "local"):
+                continue
+            pairs.append((payload.qualified_id, cast("Scope", scope)))
+        return pairs
+
+    @work(exclusive=True, group="bulk-update")
+    async def _run_bulk_update(self, pairs: list[tuple[str, Scope]]) -> None:
+        """Serial bulk-update worker.
+
+        Progress is surfaced via `app.sub_title` (the header subtitle).
+        Textual 8.x's `ModalScreen` has a dismissal-deadlock for the
+        modal-with-scrollable-content shape we'd otherwise want here
+        (issues #5596, #5008, #4552); the subtitle gives live progress
+        without any modal lifecycle.
+        """
+        import asyncio  # noqa: PLC0415
+
+        original_subtitle = self.app.sub_title
+        ok_count = 0
+        fail_count = 0
+        failures: list[str] = []
+        total = len(pairs)
+        try:
+            for i, (qid, scope) in enumerate(pairs, start=1):
+                self.app.sub_title = (
+                    f"bulk-update ({i}/{total}) {qid} [{scope}]…"
+                )
+                result = await asyncio.to_thread(
+                    run_plugin, "update", qid, scope=scope
+                )
+                if result.ok:
+                    ok_count += 1
+                else:
+                    fail_count += 1
+                    failures.append(f"{qid}: {result.message}")
+        finally:
+            self.app.sub_title = original_subtitle
+        summary = (
+            f"Bulk update done — {ok_count} ok, {fail_count} failed. "
+            "Press r to refresh, restart Claude Code to apply."
+        )
+        if failures:
+            summary += "\n\nFailures:\n" + "\n".join(failures[:5])
+            if len(failures) > 5:
+                summary += f"\n…(+{len(failures) - 5} more)"
+        self.notify(summary, timeout=15, severity="warning" if failures else "information")
