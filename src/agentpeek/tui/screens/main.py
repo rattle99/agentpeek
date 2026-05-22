@@ -20,7 +20,13 @@ from textual.widgets import (
     Static,
 )
 
-from agentpeek.actions.runner import ActionResult, PluginVerb, Scope, run_plugin
+from agentpeek.actions.runner import (
+    ActionResult,
+    PluginVerb,
+    Scope,
+    run_marketplace_update,
+    run_plugin,
+)
 from agentpeek.models import Plugin, PluginAgent, PluginSkill, ScanReport
 from agentpeek.tui.render import (
     CATEGORIES,
@@ -53,6 +59,7 @@ class MainScreen(Screen[None]):
         Binding("U", "update_all_plugins", "Update all"),
         Binding("t", "toggle_plugin", "Toggle enabled"),
         Binding("x", "uninstall_plugin", "Uninstall plugin"),
+        Binding("M", "refresh_marketplace", "Refresh market(s)"),
         Binding("slash", "focus_filter", "Filter"),
         Binding("question_mark", "help", "Help"),
         Binding("escape", "clear_filter", show=False),
@@ -567,3 +574,30 @@ class MainScreen(Screen[None]):
             if len(failures) > 5:
                 summary += f"\n…(+{len(failures) - 5} more)"
         self.notify(summary, timeout=15, severity="warning" if failures else "information")
+
+    def action_refresh_marketplace(self) -> None:
+        """Refresh the current plugin's marketplace, or all marketplaces.
+
+        When the cursor is on a plugin row, refresh only that plugin's
+        marketplace. Otherwise refresh every configured marketplace.
+        """
+        if not self._require_actions():
+            return
+        name: str | None = None
+        if self.selected_category == "plugins":
+            items = items_for_report(self._report, "plugins")
+            idx = self.selected_index
+            if 0 <= idx < len(items):
+                _label, payload, _scope = items[idx]
+                if isinstance(payload, Plugin) and payload.marketplace:
+                    name = payload.marketplace
+        target = name or "all marketplaces"
+        self.notify(f"Refreshing {target}…", timeout=2)
+        self._run_marketplace_refresh(name)
+
+    @work(exclusive=True, group="marketplace-refresh")
+    async def _run_marketplace_refresh(self, name: str | None) -> None:
+        import asyncio  # noqa: PLC0415
+
+        result = await asyncio.to_thread(run_marketplace_update, name)
+        await self._after_plugin_action(result)
