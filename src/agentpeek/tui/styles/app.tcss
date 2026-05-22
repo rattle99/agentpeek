@@ -90,25 +90,27 @@ Screen {
 }
 
 /* Even when highlighted (cursor passes over a header) keep the
-   visual identical — disabled+highlighted shouldn't look selectable. */
-#item-list > ListItem.group-header.--highlight,
-#item-list:focus > ListItem.group-header.--highlight {
+   visual identical — disabled+highlighted shouldn't look selectable.
+   NB: Textual's highlight state class is `-highlight` (single dash);
+   the `--`-prefixed form parses as a CSS-variable selector and matches
+   nothing. */
+#item-list > ListItem.group-header.-highlight,
+#item-list:focus > ListItem.group-header.-highlight {
     background: $primary 15%;
     text-style: none;
 }
 
-/* Selection emphasis — highlighted row uses `text-style: reverse`
-   instead of a custom background. Reverse swaps fg/bg at render time,
-   so themed glyphs like the `[U]` / `[P]` scope markers stay legible
-   regardless of which theme is active (no fg-on-same-color collisions).
-   The focused list gets bold on top so the user always knows which of
-   the three zones the keyboard is driving. */
-ListView > ListItem.--highlight {
-    text-style: reverse;
+/* Selection emphasis — override Textual's default focused-row styling
+   (which uses `$block-cursor-background` = `$primary` blue) with the
+   theme's accent tint. Without this override, the row turns the same
+   blue as the `[U]` scope marker and the marker disappears. */
+ListView > ListItem.-highlight {
+    background: $accent 25%;
 }
 
-ListView:focus > ListItem.--highlight {
-    text-style: bold reverse;
+ListView:focus > ListItem.-highlight {
+    background: $accent 50%;
+    text-style: bold;
 }
 
 #detail-body {
