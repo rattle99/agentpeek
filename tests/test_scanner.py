@@ -735,6 +735,27 @@ def test_scan_claude_json_oauth_absent(tmp_path: Path) -> None:
 # --- v0.13: settings extensions ---------------------------------------
 
 
+def test_scan_settings_enabled_plugins_unions_remote(tmp_path: Path) -> None:
+    # Regression: SettingsBundle.enabled_plugins must include
+    # remote-settings.json so the Settings card matches the Plugins
+    # category (which already unioned all three settings files).
+    root = _make_claude_root(tmp_path)
+    (root / "settings.json").write_text(
+        json.dumps({"enabledPlugins": {"user-plugin@m": True}})
+    )
+    (root / "remote-settings.json").write_text(
+        json.dumps({"enabledPlugins": {"org-plugin@m": True}})
+    )
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    assert result.settings is not None
+    assert set(result.settings.enabled_plugins) == {
+        "user-plugin@m",
+        "org-plugin@m",
+    }
+
+
 def test_scan_settings_surfaces_default_agent(tmp_path: Path) -> None:
     root = _make_claude_root(tmp_path)
     (root / "settings.json").write_text(

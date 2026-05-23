@@ -137,7 +137,7 @@ class LocalSource:
             warnings=warnings,
         )
 
-        enabled_plugins = _merge_enabled_plugins(user_data, local_data)
+        enabled_plugins = _merge_enabled_plugins(user_data, local_data, remote_data)
         hooks_raw = _merge_hooks_raw(user_data, local_data)
         hooks_dir_files = _list_hooks_dir_files(root)
 
@@ -849,15 +849,23 @@ def _safe_read_text(path: Path) -> str:
 
 
 def _merge_enabled_plugins(
-    user_data: dict[str, object], local_data: dict[str, object]
+    user_data: dict[str, object],
+    local_data: dict[str, object],
+    remote_data: dict[str, object],
 ) -> tuple[str, ...]:
-    """Union enabledPlugins across user + local settings, keeping truthy keys."""
-    user_plugins = as_dict(user_data.get("enabledPlugins")) or {}
-    local_plugins = as_dict(local_data.get("enabledPlugins")) or {}
+    """Union enabledPlugins across user + local + remote settings, keeping truthy keys.
+
+    Mirrors `_collect_enabled_plugins`, which feeds `Plugin.enabled` on
+    each plugin row. Excluding `remote-settings.json` (enterprise / org-pushed)
+    here meant the Settings card understated the enabled set, even though
+    the Plugins category correctly showed those entries as enabled.
+    """
     enabled: set[str] = set()
-    for k, v in {**user_plugins, **local_plugins}.items():
-        if bool(v):
-            enabled.add(str(k))
+    for source in (user_data, local_data, remote_data):
+        plugins = as_dict(source.get("enabledPlugins")) or {}
+        for k, v in plugins.items():
+            if bool(v):
+                enabled.add(str(k))
     return tuple(sorted(enabled))
 
 
