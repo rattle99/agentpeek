@@ -1170,8 +1170,12 @@ def _read_memory_file(
 
 
 # `@<path>` matches when `@` is at start-of-line or preceded by whitespace.
-# The path token stops at the first whitespace or end of line.
+# The path token stops at the first whitespace or end of line. Common
+# sentence-trailing punctuation is stripped before resolution so prose
+# like "see @path." or "@path`." doesn't end up looking for a file
+# named "path." or "path`.".
 _IMPORT_RE = re.compile(r"(?:^|(?<=\s))@(\S+)")
+_IMPORT_TRAILING_PUNCT = ".,;:?!)\"']>`"
 _IMPORT_MAX_DEPTH = 5
 
 
@@ -1201,7 +1205,11 @@ def _walk_imports(
     out: list[MemoryImport],
 ) -> None:
     for match in _IMPORT_RE.finditer(body):
-        raw = match.group(1)
+        raw = match.group(1).rstrip(_IMPORT_TRAILING_PUNCT)
+        if not raw:
+            # Bare `@` followed only by punctuation. Skip silently — it's
+            # not a real import reference.
+            continue
         target = _resolve_import_target(parent_path, raw)
         if target is None:
             out.append(

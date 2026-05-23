@@ -644,6 +644,25 @@ def test_resolve_memory_imports_cycle(tmp_path: Path) -> None:
     assert len(cycles) == 1
 
 
+def test_resolve_memory_imports_strips_trailing_punctuation(tmp_path: Path) -> None:
+    # Trailing sentence-punctuation (`.`, `,`, `` ` ``) on a `@path`
+    # token should be stripped before resolution. Otherwise prose like
+    # "see @path." or "@path`," would look for a file named "path."
+    # or "path`,".
+    target_a = tmp_path / "a.md"
+    target_b = tmp_path / "b.md"
+    target_c = tmp_path / "c.md"
+    for t in (target_a, target_b, target_c):
+        t.write_text("body")
+    parent = tmp_path / "CLAUDE.md"
+    parent.write_text("See @a.md.\nAlso @b.md`,\nFinally @c.md`.")
+    imports = _resolve_memory_imports(parent, parent.read_text())
+    resolved = [i for i in imports if i.reason is None]
+    assert len(resolved) == 3
+    by_path = {i.resolved_path for i in resolved}
+    assert by_path == {target_a.resolve(), target_b.resolve(), target_c.resolve()}
+
+
 def test_resolve_memory_imports_missing(tmp_path: Path) -> None:
     parent = tmp_path / "CLAUDE.md"
     parent.write_text("see @nonexistent.md")
