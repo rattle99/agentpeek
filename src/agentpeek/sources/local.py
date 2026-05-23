@@ -736,6 +736,11 @@ def _flatten_marketplace(entry: dict[str, object]) -> dict[str, str]:
         v = entry.get(k)
         if isinstance(v, str):
             flat[k] = v
+    # Canonical schema stores autoUpdate as a bool; persist as "true"/"false"
+    # to fit the Mapping[str, str] shape this dict already carries.
+    au = entry.get("autoUpdate")
+    if isinstance(au, bool):
+        flat["autoUpdate"] = "true" if au else "false"
     return flat
 
 

@@ -901,6 +901,19 @@ def _plugins_detail_widgets(payload: object) -> list[Widget]:
             rows.append(("Cached at", src["installLocation"]))
         if src.get("lastUpdated"):
             rows.append(("Marketplace updated", src["lastUpdated"]))
+        explicit = src.get("autoUpdate")
+        is_official = payload.marketplace == "claude-plugins-official"
+        if explicit == "true":
+            rows.append(("Auto-update", "on"))
+        elif explicit == "false":
+            rows.append(("Auto-update", "off"))
+        else:
+            rows.append(
+                (
+                    "Auto-update",
+                    _muted_cell("on (default)" if is_official else "off (default)"),
+                )
+            )
     if payload.blocked:
         rows.append(
             (

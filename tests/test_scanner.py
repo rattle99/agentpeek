@@ -13,6 +13,7 @@ from agentpeek.models import (
     SlashCommand,
 )
 from agentpeek.scanner import find_project_root, redistribute_plugins, scan
+from agentpeek.sources.local import _flatten_marketplace
 
 
 def test_scan_local_source(sample_claude_root: Path) -> None:
@@ -397,3 +398,35 @@ def test_cross_scope_no_overlap_no_warnings(tmp_path: Path) -> None:
         project_commands=(_make_command("only-project"),),
     )
     assert run_cross_scope_checks(report) == []
+
+
+def test_flatten_marketplace_captures_auto_update_true() -> None:
+    flat = _flatten_marketplace(
+        {
+            "source": {"source": "github", "repo": "owner/repo"},
+            "installLocation": "/cache/repo",
+            "lastUpdated": "2026-05-01T00:00:00Z",
+            "autoUpdate": True,
+        }
+    )
+    assert flat["autoUpdate"] == "true"
+
+
+def test_flatten_marketplace_captures_auto_update_false() -> None:
+    flat = _flatten_marketplace(
+        {
+            "source": {"source": "github", "repo": "owner/repo"},
+            "autoUpdate": False,
+        }
+    )
+    assert flat["autoUpdate"] == "false"
+
+
+def test_flatten_marketplace_omits_auto_update_when_absent() -> None:
+    flat = _flatten_marketplace(
+        {
+            "source": {"source": "github", "repo": "owner/repo"},
+            "installLocation": "/cache/repo",
+        }
+    )
+    assert "autoUpdate" not in flat
