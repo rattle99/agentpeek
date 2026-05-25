@@ -1,10 +1,12 @@
 import dataclasses
+import json
 from pathlib import Path
 
 import pytest
 
 from agentpeek.health import run_cross_scope_checks
 from agentpeek.models import (
+    MCPServer,
     MemoryFile,
     Plugin,
     PluginInstallation,
@@ -13,7 +15,11 @@ from agentpeek.models import (
     SlashCommand,
 )
 from agentpeek.scanner import find_project_root, redistribute_plugins, scan
-from agentpeek.sources.local import _flatten_marketplace
+from agentpeek.sources.local import (
+    _flatten_marketplace,
+    _resolve_memory_imports,
+    _scan_claude_json,
+)
 
 
 def test_scan_local_source(sample_claude_root: Path) -> None:
@@ -430,3 +436,399 @@ def test_flatten_marketplace_omits_auto_update_when_absent() -> None:
         }
     )
     assert "autoUpdate" not in flat
+
+
+# --- v0.13: agents loader ----------------------------------------------
+
+
+def _make_claude_root(tmp_path: Path) -> Path:
+    """Build a minimal .claude/ root that detect() accepts."""
+    root = tmp_path / ".claude"
+    root.mkdir(parents=True)
+    # detect() returns False on an empty dir; a settings.local.json
+    # alone is the cheapest indicator.
+    (root / "settings.local.json").write_text("{}")
+    return root
+
+
+def test_scan_agents_user_scope_minimal(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    agents_dir = root / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "minimal.md").write_text(
+        "---\nname: minimal\ndescription: a tiny agent\n---\n\nDo a thing."
+    )
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    assert len(result.agents) == 1
+    agent = result.agents[0]
+    assert agent.name == "minimal"
+    assert agent.description == "a tiny agent"
+    assert "Do a thing." in agent.body
+    assert agent.tools == ()
+    assert agent.model is None
+
+
+def test_scan_agents_full_frontmatter(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    agents_dir = root / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "code-reviewer.md").write_text(
+        "---\n"
+        "name: code-reviewer\n"
+        "description: Reviews code\n"
+        "tools: Read, Grep, Glob\n"
+        "disallowedTools: Write, Edit\n"
+        "model: sonnet\n"
+        "permissionMode: plan\n"
+        "memory: project\n"
+        "background: true\n"
+        "color: purple\n"
+        "skills:\n"
+        "  - api-conventions\n"
+        "  - error-handling\n"
+        "mcpServers:\n"
+        "  - github\n"
+        "hooks:\n"
+        "  PreToolUse: []\n"
+        "---\n\nYou are a code reviewer."
+    )
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    agent = result.agents[0]
+    assert agent.tools == ("Read", "Grep", "Glob")
+    assert agent.disallowed_tools == ("Write", "Edit")
+    assert agent.model == "sonnet"
+    assert agent.permission_mode == "plan"
+    assert agent.memory == "project"
+    assert agent.background is True
+    assert agent.color == "purple"
+    assert agent.skills == ("api-conventions", "error-handling")
+    assert agent.has_mcp_servers is True
+    assert agent.has_hooks is True
+
+
+def test_scan_agents_recursive_subdirs(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    nested = root / "agents" / "review" / "deep"
+    nested.mkdir(parents=True)
+    (nested / "security.md").write_text(
+        "---\nname: review-security\ndescription: deep-nested agent\n---\nbody"
+    )
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    assert len(result.agents) == 1
+    assert result.agents[0].name == "review-security"
+
+
+def test_scan_agents_falls_back_when_frontmatter_missing(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    agents_dir = root / "agents"
+    agents_dir.mkdir()
+    # No frontmatter at all — name should fall back to the filename stem.
+    (agents_dir / "bare.md").write_text("just a body, no fm")
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    assert len(result.agents) == 1
+    assert result.agents[0].name == "bare"
+
+
+# --- v0.13: rules loader ----------------------------------------------
+
+
+def test_scan_rules_path_scoped(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    rules_dir = root / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "api.md").write_text(
+        "---\n"
+        "paths:\n"
+        "  - 'src/api/**/*.ts'\n"
+        "  - 'lib/**/*.ts'\n"
+        "---\n"
+        "API validation rules"
+    )
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    assert len(result.rules) == 1
+    rule = result.rules[0]
+    assert rule.paths_globs == ("src/api/**/*.ts", "lib/**/*.ts")
+    assert rule.always_loaded is False
+    assert "API validation rules" in rule.body
+
+
+def test_scan_rules_always_loaded(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    rules_dir = root / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "global.md").write_text("no frontmatter at all")
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    rule = result.rules[0]
+    assert rule.paths_globs == ()
+    assert rule.always_loaded is True
+
+
+def test_scan_rules_recursive(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    nested = root / "rules" / "frontend"
+    nested.mkdir(parents=True)
+    (nested / "react.md").write_text("---\npaths: ['**/*.tsx']\n---\nuse hooks")
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    assert len(result.rules) == 1
+    assert result.rules[0].name == "frontend/react"
+
+
+# --- v0.13: CLAUDE.local.md -------------------------------------------
+
+
+def test_scan_memory_picks_up_claude_local_md(tmp_path: Path) -> None:
+    # Per docs, CLAUDE.local.md sits at project root (one above .claude/).
+    project = tmp_path / "proj"
+    root = project / ".claude"
+    root.mkdir(parents=True)
+    (root / "settings.local.json").write_text("{}")
+    (project / "CLAUDE.local.md").write_text("personal override")
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    local = [m for m in result.memory if m.kind == "claude_local_md"]
+    assert len(local) == 1
+    assert "personal override" in local[0].body
+
+
+# --- v0.13: @path imports ----------------------------------------------
+
+
+def test_resolve_memory_imports_single(tmp_path: Path) -> None:
+    target = tmp_path / "imported.md"
+    target.write_text("imported body")
+    parent = tmp_path / "CLAUDE.md"
+    parent.write_text("see @imported.md")
+    imports = _resolve_memory_imports(parent, parent.read_text())
+    assert len(imports) == 1
+    assert imports[0].raw == "imported.md"
+    assert imports[0].resolved_path == target.resolve()
+    assert imports[0].reason is None
+
+
+def test_resolve_memory_imports_recursive(tmp_path: Path) -> None:
+    leaf = tmp_path / "leaf.md"
+    leaf.write_text("leaf body")
+    mid = tmp_path / "mid.md"
+    mid.write_text("see @leaf.md")
+    root = tmp_path / "root.md"
+    root.write_text("see @mid.md")
+    imports = _resolve_memory_imports(root, root.read_text())
+    assert len(imports) == 2
+    assert imports[0].depth == 1
+    assert imports[1].depth == 2
+
+
+def test_resolve_memory_imports_cycle(tmp_path: Path) -> None:
+    a = tmp_path / "a.md"
+    b = tmp_path / "b.md"
+    a.write_text("see @b.md")
+    b.write_text("see @a.md")
+    imports = _resolve_memory_imports(a, a.read_text())
+    # b should resolve cleanly; b's import back to a should be a cycle.
+    cycles = [i for i in imports if i.reason == "cycle"]
+    assert len(cycles) == 1
+
+
+def test_resolve_memory_imports_strips_trailing_punctuation(tmp_path: Path) -> None:
+    # Trailing sentence-punctuation (`.`, `,`, `` ` ``) on a `@path`
+    # token should be stripped before resolution. Otherwise prose like
+    # "see @path." or "@path`," would look for a file named "path."
+    # or "path`,".
+    target_a = tmp_path / "a.md"
+    target_b = tmp_path / "b.md"
+    target_c = tmp_path / "c.md"
+    for t in (target_a, target_b, target_c):
+        t.write_text("body")
+    parent = tmp_path / "CLAUDE.md"
+    parent.write_text("See @a.md.\nAlso @b.md`,\nFinally @c.md`.")
+    imports = _resolve_memory_imports(parent, parent.read_text())
+    resolved = [i for i in imports if i.reason is None]
+    assert len(resolved) == 3
+    by_path = {i.resolved_path for i in resolved}
+    assert by_path == {target_a.resolve(), target_b.resolve(), target_c.resolve()}
+
+
+def test_resolve_memory_imports_missing(tmp_path: Path) -> None:
+    parent = tmp_path / "CLAUDE.md"
+    parent.write_text("see @nonexistent.md")
+    imports = _resolve_memory_imports(parent, parent.read_text())
+    assert len(imports) == 1
+    assert imports[0].reason == "missing"
+
+
+def test_resolve_memory_imports_home_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "global.md").write_text("home body")
+    parent = tmp_path / "CLAUDE.md"
+    parent.write_text("see @~/global.md")
+    imports = _resolve_memory_imports(parent, parent.read_text())
+    assert len(imports) == 1
+    assert imports[0].reason is None
+
+
+# --- v0.13: ~/.claude.json --------------------------------------------
+
+
+def test_scan_claude_json_surfaces_user_mcp_servers(tmp_path: Path) -> None:
+    path = tmp_path / ".claude.json"
+    path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "github": {"command": "gh", "args": ["mcp"]},
+                },
+                "projects": {},
+            }
+        )
+    )
+    mcp_results: list[MCPServer] = []
+    seen_names: set[str] = set()
+    trust, oauth, recorded = _scan_claude_json(path, mcp_results, seen_names, [])
+    assert recorded == path
+    assert any(m.name == "github" for m in mcp_results)
+    assert trust == ()
+    assert oauth is False
+
+
+def test_scan_claude_json_trust_entries(tmp_path: Path) -> None:
+    path = tmp_path / ".claude.json"
+    path.write_text(
+        json.dumps(
+            {
+                "projects": {
+                    "/Users/me/repo": {
+                        "hasTrustDialogAccepted": True,
+                        "allowedTools": ["Read", "Grep"],
+                        "enabledMcpjsonServers": ["github"],
+                        "disabledMcpjsonServers": [],
+                    }
+                }
+            }
+        )
+    )
+    trust, _, _ = _scan_claude_json(path, [], set(), [])
+    assert len(trust) == 1
+    entry = trust[0]
+    assert entry.project_path == "/Users/me/repo"
+    assert entry.trust_accepted is True
+    assert entry.allowed_tools == ("Read", "Grep")
+    assert entry.enabled_mcpjson_servers == ("github",)
+    assert entry.disabled_mcpjson_servers == ()
+
+
+def test_scan_claude_json_oauth_presence_only(tmp_path: Path) -> None:
+    path = tmp_path / ".claude.json"
+    # Non-empty oauthAccount should flip presence to True without
+    # the test reading the value.
+    path.write_text(
+        json.dumps({"oauthAccount": {"emailAddress": "redacted"}})
+    )
+    _, oauth, _ = _scan_claude_json(path, [], set(), [])
+    assert oauth is True
+
+
+def test_scan_claude_json_oauth_absent(tmp_path: Path) -> None:
+    path = tmp_path / ".claude.json"
+    path.write_text(json.dumps({"oauthAccount": {}}))
+    _, oauth, _ = _scan_claude_json(path, [], set(), [])
+    assert oauth is False
+
+
+# --- v0.13: settings extensions ---------------------------------------
+
+
+def test_scan_settings_enabled_plugins_unions_remote(tmp_path: Path) -> None:
+    # Regression: SettingsBundle.enabled_plugins must include
+    # remote-settings.json so the Settings card matches the Plugins
+    # category (which already unioned all three settings files).
+    root = _make_claude_root(tmp_path)
+    (root / "settings.json").write_text(
+        json.dumps({"enabledPlugins": {"user-plugin@m": True}})
+    )
+    (root / "remote-settings.json").write_text(
+        json.dumps({"enabledPlugins": {"org-plugin@m": True}})
+    )
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    assert result.settings is not None
+    assert set(result.settings.enabled_plugins) == {
+        "user-plugin@m",
+        "org-plugin@m",
+    }
+
+
+def test_scan_settings_surfaces_default_agent(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    (root / "settings.json").write_text(
+        json.dumps({"agent": "code-reviewer"})
+    )
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    assert result.settings is not None
+    assert result.settings.default_agent == "code-reviewer"
+
+
+def test_scan_settings_surfaces_claude_md_excludes(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    (root / "settings.json").write_text(
+        json.dumps({"claudeMdExcludes": ["**/other-team/CLAUDE.md"]})
+    )
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    assert result.settings is not None
+    assert result.settings.claude_md_excludes == ("**/other-team/CLAUDE.md",)
+
+
+# --- v0.13: agent-memory directories ----------------------------------
+
+
+def test_scan_agent_memory_user_scope(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    mem = root / "agent-memory" / "code-reviewer"
+    mem.mkdir(parents=True)
+    (mem / "MEMORY.md").write_text("# Code reviewer memory")
+    (mem / "topic.md").write_text("# topic body")
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    agent_memories = [
+        m for m in result.memory
+        if m.kind in ("agent_memory_index", "agent_memory_entry")
+    ]
+    assert len(agent_memories) == 2
+    assert all(m.agent_name == "code-reviewer" for m in agent_memories)
+    index = next(m for m in agent_memories if m.kind == "agent_memory_index")
+    assert index.project_label == "agent-memory"
+
+
+def test_scan_agent_memory_local_scope(tmp_path: Path) -> None:
+    root = _make_claude_root(tmp_path)
+    mem = root / "agent-memory-local" / "debugger"
+    mem.mkdir(parents=True)
+    (mem / "MEMORY.md").write_text("# local agent memory")
+    report = scan(root=root)
+    result = report.project or report.user
+    assert result is not None
+    locals_ = [m for m in result.memory if m.project_label == "agent-memory-local"]
+    assert len(locals_) == 1
+    assert locals_[0].agent_name == "debugger"
