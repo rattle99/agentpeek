@@ -8,18 +8,22 @@ from types import MappingProxyType
 from typing import ClassVar, cast
 
 from agentpeek.models import (
+    Agent,
     HookSpec,
     KeybindingEntry,
     KeybindingsBundle,
     MCPServer,
     MemoryFile,
+    MemoryImport,
     MemoryKind,
     Plugin,
     PluginInstallation,
+    Rule,
     ScanResult,
     ScanWarning,
     SettingsBundle,
     SlashCommand,
+    TrustEntry,
 )
 from agentpeek.parsers import load_frontmatter, load_json
 from agentpeek.parsers.coerce import (
@@ -69,7 +73,10 @@ class LocalSource:
         plugins = self._scan_plugins(root, warnings)
         memory = self._scan_memory(root, warnings)
         keybindings = self._scan_keybindings(root, warnings)
-        mcp = self._scan_mcp(root, warnings)
+        mcp_servers, claude_json_extras = self._scan_mcp(root, warnings)
+        agents = self._scan_agents(root, warnings)
+        rules = self._scan_rules(root, warnings)
+        trust_entries, oauth_present, claude_json_path = claude_json_extras
         return ScanResult(
             source=self.name,
             root=root,
@@ -79,8 +86,13 @@ class LocalSource:
             plugins=plugins,
             memory=memory,
             keybindings=keybindings,
-            mcp=mcp,
+            mcp=mcp_servers,
             warnings=tuple(warnings),
+            agents=agents,
+            rules=rules,
+            trust_entries=trust_entries,
+            oauth_session_present=oauth_present,
+            claude_json_path=claude_json_path,
         )
 
     def _scan_settings(
@@ -141,6 +153,17 @@ class LocalSource:
         spinner_override = as_dict(remote_data.get("spinnerTipsOverride")) or {}
         spinner_tips = as_str_tuple(spinner_override.get("tips"))
 
+        # Local settings overrides user; absent on either side falls through.
+        default_agent = as_str(local_data.get("agent")) or as_str(
+            user_data.get("agent")
+        )
+        # `claudeMdExcludes` is a list of globs. Union across user + local
+        # since both layers can contribute exclusions in practice.
+        claude_md_excludes = _union_str_tuple(
+            as_str_tuple(user_data.get("claudeMdExcludes")),
+            as_str_tuple(local_data.get("claudeMdExcludes")),
+        )
+
         return SettingsBundle(
             user_settings_path=user_path if user_path.exists() else None,
             local_settings_path=local_path if local_path.exists() else None,
@@ -161,6 +184,8 @@ class LocalSource:
             spinner_tips=spinner_tips,
             hooks_raw=MappingProxyType(hooks_raw),
             hooks_dir_files=hooks_dir_files,
+            default_agent=default_agent,
+            claude_md_excludes=claude_md_excludes,
         )
 
     def _scan_hooks(
@@ -335,7 +360,7 @@ class LocalSource:
             )
         return tuple(results)
 
-    def _scan_memory(
+    def _scan_memory(  # noqa: PLR0912
         self, root: Path, warnings: list[ScanWarning]
     ) -> tuple[MemoryFile, ...]:
         results: list[MemoryFile] = []
@@ -349,6 +374,57 @@ class LocalSource:
                     warnings=warnings,
                 )
             )
+        # CLAUDE.local.md sits at project root only per docs (no
+        # `.claude/` variant, no user-scope variant). When the scan
+        # root is `<project>/.claude`, the parent directory holds it.
+        local_candidates = [root.parent / "CLAUDE.local.md", root / "CLAUDE.local.md"]
+        seen_paths: set[Path] = set()
+        for local_path in local_candidates:
+            try:
+                resolved = local_path.resolve()
+            except OSError:
+                continue
+            if resolved in seen_paths or not local_path.is_file():
+                continue
+            seen_paths.add(resolved)
+            results.append(
+                _read_memory_file(
+                    local_path,
+                    kind="claude_local_md",
+                    project_label=None,
+                    warnings=warnings,
+                )
+            )
+
+        # Subagent persistent memory directories. Per docs: user/project
+        # shared (`<root>/agent-memory/<name>/`) and project-local
+        # (`<root>/agent-memory-local/<name>/`). Each contains a
+        # MEMORY.md index plus optional topic files. We surface the
+        # parent dir name via `project_label` so the renderer can
+        # distinguish shared vs local without inspecting the path.
+        for parent_name in ("agent-memory", "agent-memory-local"):
+            parent = root / parent_name
+            if not parent.is_dir():
+                continue
+            for agent_dir in sorted(parent.iterdir()):
+                if not agent_dir.is_dir():
+                    continue
+                for md_path in sorted(agent_dir.glob("*.md")):
+                    kind: MemoryKind = (
+                        "agent_memory_index"
+                        if md_path.name == "MEMORY.md"
+                        else "agent_memory_entry"
+                    )
+                    results.append(
+                        _read_memory_file(
+                            md_path,
+                            kind=kind,
+                            project_label=parent_name,
+                            warnings=warnings,
+                            agent_name=agent_dir.name,
+                        )
+                    )
+
         projects_dir = root / "projects"
         if projects_dir.is_dir():
             for proj_dir in sorted(projects_dir.iterdir()):
@@ -370,6 +446,150 @@ class LocalSource:
                             warnings=warnings,
                         )
                     )
+        return tuple(results)
+
+    def _scan_agents(
+        self, root: Path, warnings: list[ScanWarning]
+    ) -> tuple[Agent, ...]:
+        agents_dir = root / "agents"
+        if not agents_dir.is_dir():
+            return ()
+        results: list[Agent] = []
+        for md_path in sorted(agents_dir.rglob("*.md")):
+            file, warning = load_frontmatter(md_path, category="agents")
+            if warning is not None:
+                warnings.append(warning)
+            # Identity comes from the `name` frontmatter field per docs,
+            # not the filename or the relative path. Fall back to the
+            # filename stem when frontmatter is absent or invalid.
+            fallback_name = md_path.stem
+            if file is None:
+                results.append(
+                    Agent(
+                        path=md_path,
+                        name=fallback_name,
+                        description=None,
+                        body=_safe_read_text(md_path),
+                    )
+                )
+                continue
+            name = (
+                read_str_field(
+                    file.metadata, "name",
+                    path=md_path, category="agents", warnings=warnings,
+                )
+                or fallback_name
+            )
+            results.append(
+                Agent(
+                    path=md_path,
+                    name=name,
+                    description=read_str_field(
+                        file.metadata, "description",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    body=file.body,
+                    tools=read_string_list_field(
+                        file.metadata, "tools",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    disallowed_tools=read_string_list_field(
+                        file.metadata, "disallowedTools",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    model=read_str_field(
+                        file.metadata, "model",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    permission_mode=read_str_field(
+                        file.metadata, "permissionMode",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    max_turns=as_int(file.metadata.get("maxTurns")),
+                    skills=read_string_list_field(
+                        file.metadata, "skills",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    memory=read_str_field(
+                        file.metadata, "memory",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    background=_as_bool_or_none(file.metadata.get("background")),
+                    effort=read_str_field(
+                        file.metadata, "effort",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    isolation=read_str_field(
+                        file.metadata, "isolation",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    color=read_str_field(
+                        file.metadata, "color",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    initial_prompt=read_str_field(
+                        file.metadata, "initialPrompt",
+                        path=md_path, category="agents", warnings=warnings,
+                    ),
+                    has_mcp_servers=bool(file.metadata.get("mcpServers")),
+                    has_hooks=bool(file.metadata.get("hooks")),
+                )
+            )
+        return tuple(results)
+
+    def _scan_rules(
+        self, root: Path, warnings: list[ScanWarning]
+    ) -> tuple[Rule, ...]:
+        rules_dir = root / "rules"
+        if not rules_dir.is_dir():
+            return ()
+        results: list[Rule] = []
+        for md_path in sorted(rules_dir.rglob("*.md")):
+            file, warning = load_frontmatter(md_path, category="rules")
+            if warning is not None:
+                warnings.append(warning)
+            # Per-rule identifier reflects the on-disk layout so users
+            # can find the file from the listing.
+            rel = str(md_path.relative_to(rules_dir).with_suffix("")).replace(
+                "\\", "/"
+            )
+            if file is None:
+                results.append(
+                    Rule(
+                        path=md_path,
+                        name=rel,
+                        description=None,
+                        paths_globs=(),
+                        always_loaded=True,
+                        body=_safe_read_text(md_path),
+                    )
+                )
+                continue
+            globs = read_string_list_field(
+                file.metadata, "paths",
+                path=md_path, category="rules", warnings=warnings,
+            )
+            # Frontmatter `name` overrides the relative-path identifier.
+            name = (
+                read_str_field(
+                    file.metadata, "name",
+                    path=md_path, category="rules", warnings=warnings,
+                )
+                or rel
+            )
+            results.append(
+                Rule(
+                    path=md_path,
+                    name=name,
+                    description=read_str_field(
+                        file.metadata, "description",
+                        path=md_path, category="rules", warnings=warnings,
+                    ),
+                    paths_globs=globs,
+                    always_loaded=not globs,
+                    body=file.body,
+                )
+            )
         return tuple(results)
 
     def _scan_keybindings(
@@ -447,9 +667,12 @@ class LocalSource:
                 )
         return KeybindingsBundle(path=path, entries=tuple(entries))
 
-    def _scan_mcp(
+    def _scan_mcp(  # noqa: PLR0912
         self, root: Path, warnings: list[ScanWarning]
-    ) -> tuple[MCPServer, ...]:
+    ) -> tuple[
+        tuple[MCPServer, ...],
+        tuple[tuple[TrustEntry, ...], bool, Path | None],
+    ]:
         results: list[MCPServer] = []
         seen_names: set[str] = set()
         for filename in ("settings.json", "remote-settings.json"):
@@ -512,7 +735,27 @@ class LocalSource:
                             auth_pending=True,
                         )
                     )
-        return tuple(results)
+
+        # `~/.claude.json` lives at $HOME, not inside ~/.claude/. Only
+        # surfaced when the current scan root IS the user-level config
+        # directory — its contents are user-global, never project-scoped.
+        claude_json_data: tuple[tuple[TrustEntry, ...], bool, Path | None] = (
+            ((), False, None)
+        )
+        try:
+            home_claude = (Path.home() / ".claude").resolve()
+            scan_root_resolved = root.resolve()
+        except OSError:
+            scan_root_resolved = root
+            home_claude = Path.home() / ".claude"
+        if scan_root_resolved == home_claude:
+            claude_json_path = Path.home() / ".claude.json"
+            if claude_json_path.is_file():
+                claude_json_data = _scan_claude_json(
+                    claude_json_path, results, seen_names, warnings
+                )
+
+        return tuple(results), claude_json_data
 
 
 _DEFAULT_VAR_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}")
@@ -890,6 +1133,7 @@ def _read_memory_file(
     kind: MemoryKind,
     project_label: str | None,
     warnings: list[ScanWarning],
+    agent_name: str | None = None,
 ) -> MemoryFile:
     file, warning = load_frontmatter(path, category="memory")
     if warning is not None:
@@ -900,13 +1144,206 @@ def _read_memory_file(
     else:
         body = file.body
         has_fm = bool(file.metadata)
+    # CLAUDE.md (and its .local sibling) support `@path/to/file` imports
+    # up to 5 hops deep. Resolve them here so the detail card can render
+    # the full graph the agent actually sees, not just the importer.
+    imports: tuple[MemoryImport, ...] = ()
+    if kind in ("claude_md", "claude_local_md"):
+        imports = _resolve_memory_imports(path, body)
     return MemoryFile(
         path=path,
         body=body,
         has_frontmatter=has_fm,
         kind=kind,
         project_label=project_label,
+        agent_name=agent_name,
+        imports=imports,
     )
+
+
+# `@<path>` matches when `@` is at start-of-line or preceded by whitespace.
+# The path token stops at the first whitespace or end of line.
+_IMPORT_RE = re.compile(r"(?:^|(?<=\s))@(\S+)")
+_IMPORT_MAX_DEPTH = 5
+
+
+def _resolve_memory_imports(root_path: Path, body: str) -> tuple[MemoryImport, ...]:
+    """Walk `@path` references reachable from `body`, depth-first, up to 5 hops.
+
+    Returns one entry per reference encountered (including duplicates
+    seen via different parents). Cycles and depth-cap hits are surfaced
+    via the `reason` field rather than silently truncated so the renderer
+    can mark them.
+    """
+    try:
+        root_resolved = root_path.resolve()
+    except OSError:
+        root_resolved = root_path
+    visited: set[Path] = {root_resolved}
+    out: list[MemoryImport] = []
+    _walk_imports(root_path, body, visited, 1, out)
+    return tuple(out)
+
+
+def _walk_imports(
+    parent_path: Path,
+    body: str,
+    visited: set[Path],
+    depth: int,
+    out: list[MemoryImport],
+) -> None:
+    for match in _IMPORT_RE.finditer(body):
+        raw = match.group(1)
+        target = _resolve_import_target(parent_path, raw)
+        if target is None:
+            out.append(
+                MemoryImport(
+                    raw=raw, resolved_path=None, depth=depth, reason="unresolved"
+                )
+            )
+            continue
+        try:
+            resolved = target.resolve()
+        except OSError:
+            out.append(
+                MemoryImport(
+                    raw=raw, resolved_path=None, depth=depth, reason="unresolved"
+                )
+            )
+            continue
+        if resolved in visited:
+            out.append(
+                MemoryImport(
+                    raw=raw, resolved_path=resolved, depth=depth, reason="cycle"
+                )
+            )
+            continue
+        if not target.is_file():
+            out.append(
+                MemoryImport(
+                    raw=raw, resolved_path=resolved, depth=depth, reason="missing"
+                )
+            )
+            continue
+        if depth >= _IMPORT_MAX_DEPTH:
+            out.append(
+                MemoryImport(
+                    raw=raw,
+                    resolved_path=resolved,
+                    depth=depth,
+                    reason="depth-cap",
+                )
+            )
+            continue
+        out.append(MemoryImport(raw=raw, resolved_path=resolved, depth=depth))
+        visited.add(resolved)
+        try:
+            nested_body = target.read_text(encoding="utf-8-sig")
+        except OSError:
+            continue
+        _walk_imports(target, nested_body, visited, depth + 1, out)
+
+
+def _resolve_import_target(parent_path: Path, raw: str) -> Path | None:
+    """Resolve a raw `@<token>` reference against the file that contained it.
+
+    Accepts absolute paths, `~/` home-relative paths, and bare relative
+    paths (resolved relative to `parent_path.parent`). Returns None when
+    the token can't be parsed as a path at all.
+    """
+    if not raw:
+        return None
+    if raw.startswith("~/"):
+        return Path.home() / raw[2:]
+    candidate = Path(raw)
+    if candidate.is_absolute():
+        return candidate
+    return parent_path.parent / candidate
+
+
+def _as_bool_or_none(v: object) -> bool | None:
+    """Accept JSON/YAML `true`/`false` as bool, anything else as None."""
+    if isinstance(v, bool):
+        return v
+    return None
+
+
+def _scan_claude_json(
+    path: Path,
+    mcp_results: list[MCPServer],
+    seen_names: set[str],
+    warnings: list[ScanWarning],
+) -> tuple[tuple[TrustEntry, ...], bool, Path | None]:
+    """Surface user-scope MCP servers and per-project trust state from `~/.claude.json`.
+
+    The OAuth session field is detected by presence only — its value is
+    never read or stored to avoid leaking credentials through the
+    inspector. MCP servers are appended to the caller's `mcp_results`
+    list with the auth-cache file as `source_path` for provenance.
+    """
+    data, warning = load_json(path, category="settings")
+    if warning is not None:
+        warnings.append(warning)
+    if not isinstance(data, dict):
+        return (), False, path
+    data_d = cast("dict[str, object]", data)
+    # User-scope MCP servers — `mcpServers` at top level.
+    servers = data_d.get("mcpServers")
+    if isinstance(servers, dict):
+        for srv_name, srv in cast("dict[str, object]", servers).items():
+            if str(srv_name) in seen_names or not isinstance(srv, dict):
+                continue
+            srv_d = cast("dict[str, object]", srv)
+            args_raw = srv_d.get("args")
+            args_tuple: tuple[str, ...] = (
+                tuple(str(a) for a in cast("list[object]", args_raw))
+                if isinstance(args_raw, list)
+                else ()
+            )
+            env_obj = as_str_dict(srv_d.get("env"))
+            mcp_results.append(
+                MCPServer(
+                    name=str(srv_name),
+                    source_path=path,
+                    command=as_str(srv_d.get("command")),
+                    args=args_tuple,
+                    env=MappingProxyType(env_obj),
+                )
+            )
+            seen_names.add(str(srv_name))
+    # Per-project trust state — `projects.<path>.{hasTrustDialogAccepted,
+    # allowedTools, enabledMcpjsonServers, disabledMcpjsonServers}`.
+    trust_entries: list[TrustEntry] = []
+    projects = data_d.get("projects")
+    if isinstance(projects, dict):
+        for proj_path, proj_state in cast("dict[str, object]", projects).items():
+            if not isinstance(proj_state, dict):
+                continue
+            state_d = cast("dict[str, object]", proj_state)
+            trust_entries.append(
+                TrustEntry(
+                    project_path=str(proj_path),
+                    trust_accepted=bool(state_d.get("hasTrustDialogAccepted", False)),
+                    allowed_tools=as_str_tuple(state_d.get("allowedTools")),
+                    enabled_mcpjson_servers=as_str_tuple(
+                        state_d.get("enabledMcpjsonServers")
+                    ),
+                    disabled_mcpjson_servers=as_str_tuple(
+                        state_d.get("disabledMcpjsonServers")
+                    ),
+                )
+            )
+    # OAuth session presence. Different installs use slightly different
+    # field names; treat any non-empty `oauthAccount` mapping as a signal
+    # that an authenticated session is configured. We never read the
+    # value itself.
+    oauth_value = data_d.get("oauthAccount")
+    has_account = (
+        isinstance(oauth_value, dict)
+        and len(cast("dict[str, object]", oauth_value)) > 0
+    )
+    oauth_present = has_account or bool(data_d.get("oauthToken"))
+    return tuple(trust_entries), oauth_present, path
 
 
 # Cap how many session logs we crack open per project. A handful is

@@ -43,6 +43,13 @@ class SettingsBundle:
     # surfaced as a list so users can see actual script names without
     # opening the filesystem.
     hooks_dir_files: tuple[str, ...]
+    # `agent` setting: default subagent for sessions in this scope.
+    # Set via `.claude/settings.json` and overridable on the CLI.
+    default_agent: str | None = None
+    # `claudeMdExcludes`: glob patterns excluding specific CLAUDE.md
+    # files from the load order. Surfaced because they answer
+    # "why isn't this CLAUDE.md taking effect?" debugging questions.
+    claude_md_excludes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +181,26 @@ class Plugin:
     )
 
 
-MemoryKind = Literal["claude_md", "memory_index", "memory_entry"]
+MemoryKind = Literal[
+    "claude_md",
+    "claude_local_md",
+    "memory_index",
+    "memory_entry",
+    "agent_memory_index",
+    "agent_memory_entry",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryImport:
+    # Resolved import target encountered while expanding `@path/to/file`
+    # references inside a CLAUDE.md body. `resolved_path` is None when
+    # the import couldn't be resolved (file missing, cycle, depth cap
+    # hit); `reason` carries a short marker for the renderer.
+    raw: str
+    resolved_path: Path | None
+    depth: int
+    reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +210,59 @@ class MemoryFile:
     has_frontmatter: bool
     kind: MemoryKind
     project_label: str | None
+    # Auto-memory entries belonging to a specific subagent carry the
+    # agent name resolved from the parent directory; otherwise None.
+    agent_name: str | None = None
+    # Resolved @path imports referenced from this body (recursive, max 5
+    # hops, cycles marked). Empty when the file isn't a CLAUDE.md or
+    # contains no imports.
+    imports: tuple[MemoryImport, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class Agent:
+    # User- or project-scope subagent (`~/.claude/agents/` or
+    # `<project>/.claude/agents/`). Plugin-bundled agents use the
+    # separate PluginAgent type — they live inside Plugin.agents and
+    # are constructed by parsers.plugin_contents.
+    path: Path
+    name: str
+    description: str | None
+    body: str
+    # `tools` and `disallowedTools` accept either a comma-separated
+    # string or a YAML list in the canonical schema. Normalized to a
+    # tuple of token strings here.
+    tools: tuple[str, ...] = ()
+    disallowed_tools: tuple[str, ...] = ()
+    model: str | None = None
+    permission_mode: str | None = None
+    max_turns: int | None = None
+    skills: tuple[str, ...] = ()
+    memory: str | None = None
+    background: bool | None = None
+    effort: str | None = None
+    isolation: str | None = None
+    color: str | None = None
+    initial_prompt: str | None = None
+    # Raw mcpServers + hooks bodies — both have complex schemas that
+    # don't compress into a tuple of strings cleanly. We carry them as
+    # presence flags + a stringified summary so the detail card can
+    # show "configured" / "(none)".
+    has_mcp_servers: bool = False
+    has_hooks: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class Rule:
+    # `.claude/rules/*.md` — path-scoped or always-loaded context rule.
+    # Per docs, `paths:` frontmatter is optional; absent means the rule
+    # loads at session start with the same priority as `.claude/CLAUDE.md`.
+    path: Path
+    name: str
+    description: str | None
+    paths_globs: tuple[str, ...]
+    always_loaded: bool
+    body: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +294,19 @@ class MCPServer:
 
 
 @dataclass(frozen=True, slots=True)
+class TrustEntry:
+    # Per-project trust state from `~/.claude.json[projects][<path>]`.
+    # Surfaced in the Settings detail card so users can see which
+    # projects they've trusted, which tools are pre-approved, and the
+    # per-project enable/disable lists for `.mcp.json` servers.
+    project_path: str
+    trust_accepted: bool
+    allowed_tools: tuple[str, ...]
+    enabled_mcpjson_servers: tuple[str, ...]
+    disabled_mcpjson_servers: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ScanResult:
     source: str
     root: Path
@@ -226,6 +318,13 @@ class ScanResult:
     keybindings: KeybindingsBundle | None
     mcp: tuple[MCPServer, ...]
     warnings: tuple[ScanWarning, ...]
+    agents: tuple[Agent, ...] = ()
+    rules: tuple[Rule, ...] = ()
+    # `~/.claude.json` highlights, only populated at user scope. Empty
+    # tuple when the file is absent or the scope isn't user.
+    trust_entries: tuple[TrustEntry, ...] = ()
+    oauth_session_present: bool = False
+    claude_json_path: Path | None = None
 
     @classmethod
     def empty(

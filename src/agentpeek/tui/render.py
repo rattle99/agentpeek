@@ -12,15 +12,18 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Markdown, Static
 
 from agentpeek.models import (
+    Agent,
     HookSpec,
     KeybindingEntry,
     KeybindingsBundle,
     MCPServer,
     MemoryFile,
+    MemoryImport,
     Plugin,
     PluginAgent,
     PluginManifest,
     PluginSkill,
+    Rule,
     ScanReport,
     ScanResult,
     ScanWarning,
@@ -34,6 +37,8 @@ CATEGORIES: tuple[tuple[str, str], ...] = (
     ("commands", "Slash commands"),
     ("plugins", "Plugins"),
     ("skills", "Skills"),
+    ("agents", "Agents"),
+    ("rules", "Rules"),
     ("memory", "Memory"),
     ("keybindings", "Keybindings"),
     ("mcp", "MCP servers"),
@@ -304,6 +309,8 @@ def item_body(payload: object) -> str | None:
     """
     if isinstance(payload, MemoryFile | SlashCommand | PluginSkill | PluginAgent):
         return payload.body
+    if isinstance(payload, Agent | Rule):
+        return payload.body
     if isinstance(payload, HookSpec):
         return payload.command
     return None
@@ -322,6 +329,8 @@ def item_path(payload: object, result: ScanResult) -> Path | None:  # noqa: PLR0
     or a memory entry with no path — shouldn't happen but defensive).
     """
     if isinstance(payload, MemoryFile | SlashCommand | PluginSkill):
+        return payload.path
+    if isinstance(payload, Agent | Rule):
         return payload.path
     if isinstance(payload, HookSpec):
         return payload.referenced_script
@@ -354,6 +363,8 @@ def category_count(result: ScanResult, key: str) -> int:
         "commands": len(result.commands) + plugin_commands,
         "plugins": len(result.plugins),
         "skills": sum(len(p.skills) for p in result.plugins),
+        "agents": len(result.agents),
+        "rules": len(result.rules),
         "memory": len(result.memory),
         "keybindings": (len(result.keybindings.entries) if result.keybindings else 0),
         "mcp": len(result.mcp) + plugin_mcps,
@@ -517,7 +528,7 @@ def category_items(  # noqa: PLR0911
     # would only obscure the dispatch.
     match key:
         case "settings":
-            return _settings_items(result.settings)
+            return _settings_items(result.settings, result)
         case "hooks":
             merged_hooks = result.hooks + tuple(
                 h for p in result.plugins for h in p.hooks
@@ -532,6 +543,10 @@ def category_items(  # noqa: PLR0911
             return _plugins_items(result.plugins)
         case "skills":
             return _skills_items(result.plugins)
+        case "agents":
+            return _agents_items(result.agents)
+        case "rules":
+            return _rules_items(result.rules)
         case "memory":
             return _memory_items(result.memory)
         case "keybindings":
@@ -579,6 +594,10 @@ def _render_body_widgets(key: str, payload: object) -> list[Widget]:  # noqa: PL
             return _plugins_detail_widgets(payload)
         case "skills":
             return _skills_detail_widgets(payload)
+        case "agents":
+            return _agents_detail_widgets(payload)
+        case "rules":
+            return _rules_detail_widgets(payload)
         case "memory":
             return _memory_detail_widgets(payload)
         case "keybindings":
@@ -594,10 +613,12 @@ def _render_body_widgets(key: str, payload: object) -> list[Widget]:  # noqa: PL
 # --- Settings -----------------------------------------------------------
 
 
-def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
+def _settings_items(
+    s: SettingsBundle | None, result: ScanResult | None = None
+) -> list[tuple[Content, object]]:
     if s is None:
         return []
-    return [
+    items: list[tuple[Content, object]] = [
         (_scalar_label("Model", s.model), _SettingsItem("Model", "scalar", s.model)),
         (_scalar_label("Theme", s.theme), _SettingsItem("Theme", "scalar", s.theme)),
         (
@@ -611,6 +632,10 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
         (
             _scalar_label("Output style", s.output_style),
             _SettingsItem("Output style", "scalar", s.output_style),
+        ),
+        (
+            _scalar_label("Default agent", s.default_agent),
+            _SettingsItem("Default agent", "scalar", s.default_agent),
         ),
         (
             _scalar_label(
@@ -675,7 +700,50 @@ def _settings_items(s: SettingsBundle | None) -> list[tuple[Content, object]]:
                 "Hooks dir files", "list", list(s.hooks_dir_files)
             ),
         ),
+        (
+            _count_item_label("CLAUDE.md excludes", len(s.claude_md_excludes)),
+            _SettingsItem(
+                "CLAUDE.md excludes", "list", list(s.claude_md_excludes)
+            ),
+        ),
     ]
+    if result is not None:
+        if result.claude_json_path is not None:
+            items.append(
+                (
+                    _scalar_label(
+                        "OAuth session (~/.claude.json)",
+                        "present" if result.oauth_session_present else "absent",
+                    ),
+                    _SettingsItem(
+                        "OAuth session (~/.claude.json)",
+                        "scalar",
+                        "present" if result.oauth_session_present else "absent",
+                    ),
+                )
+            )
+        if result.trust_entries:
+            items.append(
+                (
+                    _count_item_label(
+                        "Per-project trust", len(result.trust_entries)
+                    ),
+                    _SettingsItem(
+                        "Per-project trust",
+                        "dict",
+                        {
+                            t.project_path: (
+                                f"trust={'yes' if t.trust_accepted else 'no'}, "
+                                f"allow={len(t.allowed_tools)}, "
+                                f"mcp+{len(t.enabled_mcpjson_servers)}/"
+                                f"-{len(t.disabled_mcpjson_servers)}"
+                            )
+                            for t in result.trust_entries
+                        },
+                    ),
+                )
+            )
+    return items
 
 
 def _scalar_label(name: str, value: object) -> Content:
@@ -1102,8 +1170,11 @@ def _skills_detail_widgets(payload: object) -> list[Widget]:
 
 _MEMORY_KIND_LABEL = {
     "claude_md": "CLAUDE",
+    "claude_local_md": "CLAUDE.local",
     "memory_index": "index",
     "memory_entry": "entry",
+    "agent_memory_index": "agent-index",
+    "agent_memory_entry": "agent-entry",
 }
 
 
@@ -1116,11 +1187,17 @@ def _memory_items(memory: tuple[MemoryFile, ...]) -> list[tuple[Content, object]
             "  ",
             m.path.name,
         ]
+        if m.agent_name:
+            parts.append((f"  [{m.agent_name}]", COLOR_INFO))
         if m.project_label:
             parts.append((f"  @ {m.project_label}", COLOR_MUTED))
+        if m.kind == "claude_local_md":
+            parts.append(("  (local override)", COLOR_WARNING))
         parts.append((f"  ({len(m.body)} chars", COLOR_MUTED))
         if m.has_frontmatter:
             parts.append((" +fm", COLOR_INFO))
+        if m.imports:
+            parts.append((f" {len(m.imports)} imports", COLOR_INFO))
         parts.append((")", COLOR_MUTED))
         items.append((Content.assemble(*parts), m))
     return items
@@ -1137,15 +1214,145 @@ def _memory_detail_widgets(payload: object) -> list[Widget]:
     ]
     if payload.has_frontmatter:
         parts.extend(("  ", _badge("+fm", "info")))
+    if payload.kind == "claude_local_md":
+        parts.extend(("  ", _badge("local override", "warning")))
     widgets: list[Widget] = [_detail_header(Content.assemble(*parts))]
     rows: list[tuple[str, RenderableType]] = [
         (
             "Project",
             payload.project_label or _muted_cell("(user-level)"),
         ),
-        ("Path", str(payload.path)),
-        ("Size", f"{len(payload.body)} chars"),
     ]
+    if payload.agent_name:
+        rows.append(("Agent", payload.agent_name))
+    rows.extend(
+        [
+            ("Path", str(payload.path)),
+            ("Size", f"{len(payload.body)} chars"),
+            ("Imports", str(len(payload.imports)) if payload.imports else "0"),
+        ]
+    )
+    widgets.append(_card("Properties", Static(_kv_table(rows))))
+    if payload.imports:
+        widgets.append(_card("Imports", _imports_table(payload.imports)))
+    widgets.append(_card("Body", _bounded_markdown(payload.body)))
+    return widgets
+
+
+def _imports_table(imports: tuple[MemoryImport, ...]) -> Widget:
+    """Render resolved @imports as a depth-indented table.
+
+    Cycles and depth-cap entries are surfaced with their reason in the
+    status column so users can tell what Claude actually loads vs what
+    was skipped to avoid infinite recursion.
+    """
+    rows: tuple[tuple[str, ...], ...] = tuple(
+        (
+            "  " * (imp.depth - 1) + f"@{imp.raw}",
+            str(imp.resolved_path) if imp.resolved_path else "—",
+            imp.reason or "loaded",
+        )
+        for imp in imports
+    )
+    return _PendingDataTable(columns=("Reference", "Resolved", "Status"), rows=rows)
+
+
+# --- Agents -------------------------------------------------------------
+
+
+def _agents_items(agents: tuple[Agent, ...]) -> list[tuple[Content, object]]:
+    items: list[tuple[Content, object]] = []
+    for a in agents:
+        parts: list[Content | str | tuple[str, str]] = [
+            (a.name, "bold"),
+        ]
+        if a.description:
+            preview = _truncate_preview(a.description, 60)
+            parts.append((f"  — {preview}", COLOR_MUTED))
+        if a.model:
+            parts.append((f"  [{a.model}]", COLOR_INFO))
+        items.append((Content.assemble(*parts), a))
+    return items
+
+
+def _agents_detail_widgets(payload: object) -> list[Widget]:  # noqa: PLR0912
+    if not isinstance(payload, Agent):
+        return _empty_state("agent")
+    widgets: list[Widget] = [_detail_header(payload.name)]
+    rows: list[tuple[str, RenderableType]] = [
+        ("Description", payload.description or _muted_cell("—")),
+        ("Path", str(payload.path)),
+    ]
+    if payload.model:
+        rows.append(("Model", payload.model))
+    if payload.permission_mode:
+        rows.append(("Permission mode", payload.permission_mode))
+    if payload.memory:
+        rows.append(("Memory scope", payload.memory))
+    if payload.background is not None:
+        rows.append(("Background", "yes" if payload.background else "no"))
+    if payload.effort:
+        rows.append(("Effort", payload.effort))
+    if payload.isolation:
+        rows.append(("Isolation", payload.isolation))
+    if payload.color:
+        rows.append(("Color", payload.color))
+    if payload.max_turns is not None:
+        rows.append(("Max turns", str(payload.max_turns)))
+    if payload.tools:
+        rows.append(("Tools", ", ".join(payload.tools)))
+    if payload.disallowed_tools:
+        rows.append(("Disallowed tools", ", ".join(payload.disallowed_tools)))
+    if payload.skills:
+        rows.append(("Preloaded skills", ", ".join(payload.skills)))
+    if payload.initial_prompt:
+        rows.append(("Initial prompt", payload.initial_prompt))
+    if payload.has_mcp_servers:
+        rows.append(("MCP servers", "configured"))
+    if payload.has_hooks:
+        rows.append(("Hooks", "configured"))
+    widgets.append(_card("Properties", Static(_kv_table(rows))))
+    widgets.append(_card("System prompt", _bounded_markdown(payload.body)))
+    return widgets
+
+
+# --- Rules --------------------------------------------------------------
+
+
+def _rules_items(rules: tuple[Rule, ...]) -> list[tuple[Content, object]]:
+    items: list[tuple[Content, object]] = []
+    for r in rules:
+        parts: list[Content | str | tuple[str, str]] = [
+            (r.name, "bold"),
+        ]
+        if r.always_loaded:
+            parts.append(("  (always loaded)", COLOR_INFO))
+        elif r.paths_globs:
+            parts.append(
+                (f"  paths: {', '.join(r.paths_globs)}", COLOR_MUTED)
+            )
+        items.append((Content.assemble(*parts), r))
+    return items
+
+
+def _rules_detail_widgets(payload: object) -> list[Widget]:
+    if not isinstance(payload, Rule):
+        return _empty_state("rule")
+    widgets: list[Widget] = [_detail_header(payload.name)]
+    rows: list[tuple[str, RenderableType]] = [
+        ("Path", str(payload.path)),
+        ("Description", payload.description or _muted_cell("—")),
+        (
+            "Trigger",
+            (
+                Text("always (loaded at session start)")
+                if payload.always_loaded
+                else Text("on-demand (path-scoped)")
+            ),
+        ),
+    ]
+    if payload.paths_globs:
+        rows.append(("Path globs", ", ".join(payload.paths_globs)))
     widgets.append(_card("Properties", Static(_kv_table(rows))))
     widgets.append(_card("Body", _bounded_markdown(payload.body)))
     return widgets
