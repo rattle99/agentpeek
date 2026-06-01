@@ -8,6 +8,10 @@ A TUI for inspecting agent CLI configurations: what's installed, what's enabled,
 
 agentpeek scans your Claude Code config (`~/.claude/` and any project-level `.claude/` directory it finds by walking up from `cwd`) and surfaces every loose file the agent depends on: settings, hooks, slash commands, memory files, MCP servers, user/project subagents, path-scoped rules, installed plugins (with their full contents: manifest, skills, agents, commands, hooks, MCPs), and any health warnings detected during the scan.
 
+
+<img width="1800" height="1150" alt="recording" src="https://github.com/user-attachments/assets/0d18eb93-b985-41a6-9670-0977ceadafac" />
+
+
 ## Install
 
     pipx install agentpeek
