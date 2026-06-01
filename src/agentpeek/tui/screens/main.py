@@ -69,6 +69,7 @@ class MainScreen(Screen[None]):
         Binding("slash", "focus_filter", "Filter"),
         Binding("question_mark", "help", "Help"),
         Binding("escape", "clear_filter", show=False),
+        Binding("s", "focus_sidebar", "Sidebar", show=False),
     ]
 
     selected_category: reactive[str] = reactive(CATEGORIES[0][0], init=False)
@@ -270,14 +271,21 @@ class MainScreen(Screen[None]):
                 app.push_screen(AgentDetailModal(agents[idx]))
 
     def action_help(self) -> None:
-        """Open a help modal listing every shown Binding."""
+        """Open a help modal listing every Binding with a description.
+
+        Filters on `b.description` (non-empty) rather than `b.show`, so
+        power-user bindings hidden from the footer (e.g. `s` to refocus
+        the sidebar) still surface in `?` for discovery. Bindings with
+        no description (e.g. `escape` to clear filter) stay hidden in
+        both places since there's nothing meaningful to label them.
+        """
         app = cast("AgentViewApp", self.app)  # pyright: ignore[reportUnknownMemberType]
         bindings: list[tuple[str, str]] = []
         for b in self.BINDINGS:
-            if isinstance(b, Binding) and b.show:
+            if isinstance(b, Binding) and b.description:
                 bindings.append((b.key, b.description))
         for b in app.BINDINGS:
-            if isinstance(b, Binding) and b.show:
+            if isinstance(b, Binding) and b.description:
                 bindings.append((b.key, b.description))
         app.push_screen(HelpScreen(tuple(bindings)))
 
@@ -286,6 +294,19 @@ class MainScreen(Screen[None]):
         flt = self.query_one("#filter-input", Input)
         flt.display = True
         flt.focus()
+
+    def action_focus_sidebar(self) -> None:
+        """Refocus the sidebar category list.
+
+        Useful as a one-keystroke escape hatch from the items pane or
+        a focused detail-card DataTable when the user wants to switch
+        categories. Tab cycles forward through every focusable widget
+        in the detail pane (one per content DataTable), which makes
+        Shift+Tab the only quick way back — but headless tools like
+        VHS can't easily produce Shift+Tab, so a single bindable key
+        is friendlier.
+        """
+        self.query_one("#category-list", ListView).focus()
 
     def action_clear_filter(self) -> None:
         """Escape: clear the filter, hide the input, refocus the items list."""

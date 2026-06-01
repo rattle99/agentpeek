@@ -222,3 +222,6 @@ __marimo__/
 local/
 # project-level Claude Code dir at repo root (anchored; test fixtures unaffected)
 /.claude/
+
+# macOS Finder droppings
+.DS_Store

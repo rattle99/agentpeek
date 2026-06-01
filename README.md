@@ -26,7 +26,7 @@ Requires Python ≥ 3.11. Linux and macOS only.
 
 ## What you get
 
-- **Three-zone TUI**: sidebar of 11 categories on the left, items list in the middle, detail pane on the right. Drill-down on every category.
+- **Three-zone TUI**: category sidebar on the left, items list in the middle, detail pane on the right. Drill-down on every category.
 - **Multi-scope**: user-scoped (`~/.claude/`) and project-scoped (`.claude/` found by walking up from cwd) configurations shown side by side with `[U]` / `[P]` badges. Health checks compare the two and flag conflicts.
 - **Subagents**: user and project agents under `agents/*.md` are scanned recursively, with full frontmatter (tools, model, permission mode, memory scope, color, and the rest) shown in the detail card.
 - **Path-scoped rules**: `.claude/rules/*.md` files at user and project scope are listed with their `paths:` globs (or marked "always loaded" when the field is absent), so you can answer "why is Claude doing X here?" by category instead of by guessing.
@@ -43,6 +43,7 @@ Requires Python ≥ 3.11. Linux and macOS only.
 |---|---|
 | `↑` / `↓` | Move within the focused list |
 | `Tab` / `Shift+Tab` | Move focus between sidebar / items / detail |
+| `s` | Refocus the sidebar (one-keystroke escape from a deep detail-pane table) |
 | `Enter` | Drill into the highlighted item; on a Skills or Agents row inside a plugin, opens a detail modal |
 | `r` | Re-scan disk |
 | `o` | Open the highlighted item's file in `$EDITOR` (TUI suspends + resumes) |
